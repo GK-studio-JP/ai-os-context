@@ -1,0 +1,61 @@
+name: projection snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Canonical bulletin-board repository (owner/name)
+        required: true
+        default: GK-studio-JP/ai-bulletin-board
+      state:
+        description: Issue state to project
+        required: true
+        type: choice
+        default: open
+        options:
+          - open
+          - all
+          - closed
+      default_process:
+        description: Optional fallback process for legacy Issues
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.AIOS_GITHUB_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Build bounded projection
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ inputs.repository }}
+          ISSUE_STATE: ${{ inputs.state }}
+          DEFAULT_PROCESS: ${{ inputs.default_process }}
+        run: |
+          args=(
+            snapshot
+            --repo "$SOURCE_REPOSITORY"
+            --state "$ISSUE_STATE"
+            --output-dir projection
+          )
+          if [[ -n "$DEFAULT_PROCESS" ]]; then
+            args+=(--default-process "$DEFAULT_PROCESS")
+          fi
+          aios-context "${args[@]}"
+      - name: Upload projection artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-os-projection
+          path: projection/
+          if-no-files-found: error
+          retention-days: 7
