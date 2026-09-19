@@ -6,7 +6,7 @@ on:
       repository:
         description: Canonical bulletin-board repository (owner/name)
         required: true
-        default: kj2whvbzjn-hue/ai-bulletin-board
+        default: GK-studio-JP/ai-bulletin-board
       state:
         description: Issue state to project
         required: true
@@ -41,7 +41,7 @@ jobs:
     timeout-minutes: 10
     env:
       GITHUB_TOKEN: ${{ secrets.AIOS_GITHUB_TOKEN || github.token }}
-      SOURCE_REPOSITORY: ${{ inputs.repository || 'kj2whvbzjn-hue/ai-bulletin-board' }}
+      SOURCE_REPOSITORY: ${{ inputs.repository || 'GK-studio-JP/ai-bulletin-board' }}
       ISSUE_STATE: ${{ inputs.state || 'open' }}
       DEFAULT_PROCESS: ${{ inputs.default_process || 'PROC-BULLETIN' }}
     steps:
