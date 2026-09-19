@@ -7,16 +7,34 @@ from .protocol import extract_task_envelope
 from .replay import ReplayResult
 
 
-def scheduler_row(issue: dict[str, Any], replay: ReplayResult) -> dict[str, Any]:
+def scheduler_row(
+    issue: dict[str, Any],
+    replay: ReplayResult,
+    default_process: str | None = None,
+) -> dict[str, Any]:
     envelope = extract_task_envelope(issue.get("body") or "") or {}
+    envelope_process = envelope.get("process")
+    process = envelope_process or default_process
+    if envelope_process:
+        process_source = "task_envelope"
+    elif default_process:
+        process_source = "default"
+    else:
+        process_source = None
+
     next_action = None
     if replay.latest_owner_event:
         next_action = replay.latest_owner_event.next_action
+
     return {
         "task": replay.task,
         "title": issue.get("title") or "",
+        "issue_url": issue.get("html_url"),
         "state": replay.state,
-        "process": envelope.get("process"),
+        "process": process,
+        "process_source": process_source,
+        "routing_ready": bool(process),
+        "target_repository": envelope.get("repository"),
         "priority": envelope.get("priority"),
         "owner": replay.owner,
         "lease_status": replay.lease_status,
@@ -29,37 +47,60 @@ def scheduler_row(issue: dict[str, Any], replay: ReplayResult) -> dict[str, Any]
     }
 
 
-def scheduler_view(repository: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+def scheduler_view(
+    repository: str,
+    rows: list[dict[str, Any]],
+    generated_at: datetime | None = None,
+) -> dict[str, Any]:
     def priority(row: dict[str, Any]) -> tuple[int, int]:
         value = row.get("priority")
         p = value if isinstance(value, int) else 0
         task_num = int(str(row["task"])[1:])
         return (-p, task_num)
 
-    runnable = [row for row in rows if row["state"] == "open" and row["history_safe"] and not row["blocked_by"]]
+    def routing_ready(row: dict[str, Any]) -> bool:
+        return bool(row.get("routing_ready", row.get("process")))
+
+    runnable = [
+        row
+        for row in rows
+        if row["state"] == "open"
+        and row["history_safe"]
+        and not row["blocked_by"]
+        and routing_ready(row)
+    ]
+    unrouted = [
+        row
+        for row in rows
+        if row["state"] == "open"
+        and row["history_safe"]
+        and not row["blocked_by"]
+        and not routing_ready(row)
+    ]
     claimed = [row for row in rows if row["state"] == "claimed"]
     blocked = [row for row in rows if row["state"] == "open" and row["blocked_by"]]
     unsafe = [row for row in rows if not row["history_safe"]]
     completed = [row for row in rows if row["state"] == "completed"]
 
-    runnable.sort(key=priority)
-    claimed.sort(key=priority)
-    blocked.sort(key=priority)
-    unsafe.sort(key=priority)
+    for group in (runnable, unrouted, claimed, blocked, unsafe):
+        group.sort(key=priority)
 
+    generated = generated_at or datetime.now(timezone.utc)
     return {
         "schema": "ai-os-scheduler-view:v1",
         "authoritative": False,
         "repository": repository,
-        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "generated_at": generated.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "counts": {
             "runnable": len(runnable),
+            "unrouted": len(unrouted),
             "claimed": len(claimed),
             "blocked": len(blocked),
             "history_unsafe": len(unsafe),
             "completed": len(completed),
         },
         "runnable": runnable,
+        "unrouted": unrouted,
         "claimed": claimed,
         "blocked": blocked,
         "history_unsafe": unsafe,
