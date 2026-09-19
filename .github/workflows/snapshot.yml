@@ -6,7 +6,7 @@ on:
       repository:
         description: Canonical bulletin-board repository (owner/name)
         required: true
-        default: GK-studio-JP/ai-bulletin-board
+        default: kj2whvbzjn-hue/ai-bulletin-board
       state:
         description: Issue state to project
         required: true
@@ -17,30 +17,41 @@ on:
           - all
           - closed
       default_process:
-        description: Optional fallback process for legacy Issues
+        description: Fallback process for legacy Issues without ai-os-task:v1
         required: false
-        default: ""
+        default: PROC-BULLETIN
+  schedule:
+    - cron: '17 * * * *'
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/snapshot.yml'
 
 permissions:
   contents: read
 
+concurrency:
+  group: projection-snapshot
+  cancel-in-progress: true
+
 jobs:
   snapshot:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       GITHUB_TOKEN: ${{ secrets.AIOS_GITHUB_TOKEN || github.token }}
+      SOURCE_REPOSITORY: ${{ inputs.repository || 'kj2whvbzjn-hue/ai-bulletin-board' }}
+      ISSUE_STATE: ${{ inputs.state || 'open' }}
+      DEFAULT_PROCESS: ${{ inputs.default_process || 'PROC-BULLETIN' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
       - run: python -m pip install -e .
       - name: Build bounded projection
         shell: bash
-        env:
-          SOURCE_REPOSITORY: ${{ inputs.repository }}
-          ISSUE_STATE: ${{ inputs.state }}
-          DEFAULT_PROCESS: ${{ inputs.default_process }}
         run: |
           args=(
             snapshot
@@ -52,6 +63,28 @@ jobs:
             args+=(--default-process "$DEFAULT_PROCESS")
           fi
           aios-context "${args[@]}"
+      - name: Validate projection
+        run: |
+          test -s projection/manifest.json
+          test -s projection/scheduler-view.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path("projection")
+          manifest = json.loads((root / "manifest.json").read_text())
+          view = json.loads((root / "scheduler-view.json").read_text())
+          assert manifest["schema"] == "ai-os-projection-manifest:v1"
+          assert manifest["authoritative"] is False
+          assert view["schema"] == "ai-os-scheduler-view:v1"
+          assert view["authoritative"] is False
+          assert manifest["generated_at"] == view["generated_at"]
+          for task in manifest["tasks"]:
+              capsule = json.loads((root / task["capsule"]).read_text())
+              assert capsule["authoritative"] is False
+              assert capsule["source"]["task"] == task["task"]
+          print("LIVE_PROJECTION_OK", len(manifest["tasks"]))
+          PY
       - name: Upload projection artifact
         uses: actions/upload-artifact@v4
         with:
