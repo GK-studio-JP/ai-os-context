@@ -1,0 +1,6 @@
+{
+  "number": 184,
+  "title": "Fix JWT refresh race condition",
+  "html_url": "https://github.com/GK-studio-JP/ai-bulletin-board/issues/184",
+  "body": "workstream: auth/jwt-refresh\n\n<!-- ai-os-task:v1 -->\n```json\n{\n  \"process\": \"PROC-AUTH\",\n  \"repository\": \"GK-studio-JP/auth\",\n  \"objective\": \"Prevent concurrent token refresh from creating multiple valid sessions\",\n  \"priority\": 80,\n  \"contracts\": [\"CTR-AUTH-004\", \"CTR-STORAGE-002\"],\n  \"context_refs\": [\"path:src/token/refresh.ts\", \"path:tests/auth-refresh.test.ts\"],\n  \"acceptance\": [\"auth concurrency test passes\"]\n}\n```"
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "ai-os-process:v1",
+  "id": "PROC-CONTEXT",
+  "name": "context",
+  "responsibility": [
+    "protocol replay",
+    "state reduction",
+    "context capsule compilation",
+    "scheduler projection"
+  ],
+  "excludes": [
+    "scheduling policy",
+    "kernel authority decisions",
+    "worker implementation decisions"
+  ],
+  "consumes": [
+    "ai-bb:v1 GitHub Issue/comment journal"
+  ],
+  "provides": [
+    "ai-os-context-capsule:v1",
+    "ai-os-scheduler-view:v1"
+  ]
+}

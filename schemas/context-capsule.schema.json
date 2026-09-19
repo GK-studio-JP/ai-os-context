@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gk-studio-jp.example/schemas/ai-os-context-capsule-v1.json",
+  "title": "AI OS Context Capsule v1",
+  "type": "object",
+  "required": ["schema", "authoritative", "source", "identity", "task", "authority", "execution", "memory", "replay", "instructions"],
+  "properties": {
+    "schema": {"const": "ai-os-context-capsule:v1"},
+    "authoritative": {"const": false},
+    "fingerprint": {"type": "string", "minLength": 10},
+    "source": {"type": "object"},
+    "identity": {"type": "object"},
+    "task": {"type": "object"},
+    "authority": {"type": "object"},
+    "execution": {"type": "object"},
+    "memory": {"type": "object"},
+    "replay": {"type": "object"},
+    "instructions": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

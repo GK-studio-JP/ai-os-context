@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1001,
+    "created_at": "2026-09-19T00:00:00Z",
+    "updated_at": "2026-09-19T00:00:00Z",
+    "body": "<!-- ai-bb:v1 -->\n```json\n{\"type\":\"CLAIM\",\"agent_id\":\"openai:auth:run-1\",\"task\":\"#184\",\"idempotency_key\":\"184-claim-1\",\"summary\":\"Claim auth task\",\"next_action\":\"Reproduce the race\",\"artifacts\":[]}\n```"
+  },
+  {
+    "id": 1002,
+    "created_at": "2026-09-19T00:05:00Z",
+    "updated_at": "2026-09-19T00:05:00Z",
+    "body": "<!-- ai-bb:v1 -->\n```json\n{\"type\":\"PROGRESS\",\"agent_id\":\"openai:auth:run-1\",\"task\":\"#184\",\"idempotency_key\":\"184-progress-1\",\"summary\":\"Race reproduced in refresh path\",\"next_action\":\"Implement single-flight guard\",\"artifacts\":[\"path:src/token/refresh.ts\"]}\n```"
+  },
+  {
+    "id": 1003,
+    "created_at": "2026-09-19T00:10:00Z",
+    "updated_at": "2026-09-19T00:10:00Z",
+    "body": "<!-- ai-bb:v1 -->\n```json\n{\"type\":\"HEARTBEAT\",\"agent_id\":\"openai:auth:run-1\",\"task\":\"#184\",\"idempotency_key\":\"184-heartbeat-1\",\"summary\":\"Continuing implementation\",\"next_action\":\"Run concurrency test\",\"artifacts\":[]}\n```"
+  }
+]
