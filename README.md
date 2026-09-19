@@ -2,7 +2,7 @@
 
 `ai-os-context` is the memory-management and projection layer for the GitHub-native AI OS.
 
-It does **not** replace `kj2whvbzjn-hue/ai-bulletin-board`. The bulletin board remains the canonical append-only event journal. This repository deterministically replays that journal and emits small, non-authoritative projections for LLMs.
+It does **not** replace `GK-studio-JP/ai-bulletin-board`. The bulletin board remains the canonical append-only event journal. This repository deterministically replays that journal and emits small, non-authoritative projections for LLMs.
 
 ## Why
 
@@ -92,16 +92,16 @@ Use a GitHub token with only the read permissions required for the source reposi
 export GITHUB_TOKEN=...
 
 aios-context replay \
-  --repo kj2whvbzjn-hue/ai-bulletin-board \
+  --repo GK-studio-JP/ai-bulletin-board \
   --issue 123
 
 aios-context capsule \
-  --repo kj2whvbzjn-hue/ai-bulletin-board \
+  --repo GK-studio-JP/ai-bulletin-board \
   --issue 123 \
   --process PROC-BULLETIN
 
 aios-context scheduler-view \
-  --repo kj2whvbzjn-hue/ai-bulletin-board \
+  --repo GK-studio-JP/ai-bulletin-board \
   --default-process PROC-BULLETIN
 ```
 
@@ -113,7 +113,7 @@ The `snapshot` command materializes one bounded boot image for Scheduler/Worker 
 
 ```bash
 aios-context snapshot \
-  --repo kj2whvbzjn-hue/ai-bulletin-board \
+  --repo GK-studio-JP/ai-bulletin-board \
   --state open \
   --default-process PROC-BULLETIN \
   --output-dir projection
@@ -149,7 +149,7 @@ Boot rule:
 - hourly at minute 17;
 - on pushes that change `src/**`, `tests/**`, or the snapshot workflow itself.
 
-The workflow defaults to `kj2whvbzjn-hue/ai-bulletin-board`, open Issues, and `PROC-BULLETIN`. It validates the manifest, scheduler view, and every referenced capsule before uploading `projection/` as the `ai-os-projection` artifact for seven days.
+The workflow defaults to `GK-studio-JP/ai-bulletin-board`, open Issues, and `PROC-BULLETIN`. It validates the manifest, scheduler view, and every referenced capsule before uploading `projection/` as the `ai-os-projection` artifact for seven days.
 
 If the source repository later requires credentials not available to the run's `github.token`, configure a repository secret named `AIOS_GITHUB_TOKEN` with read-only access to that source.
 
