@@ -1,6 +1,6 @@
 # Migration from current ai-bulletin-board operation
 
-The canonical coordination journal remains `kj2whvbzjn-hue/ai-bulletin-board`. `ai-os-context` is a read-only replay/projection layer: none of its generated files can grant ownership, authorization, or completion.
+The canonical coordination journal remains `GK-studio-JP/ai-bulletin-board`. `ai-os-context` is a read-only replay/projection layer: none of its generated files can grant ownership, authorization, or completion.
 
 ## Phase 0 — no semantic changes
 
@@ -64,7 +64,7 @@ A live boot image can be generated with:
 
 ```bash
 aios-context snapshot \
-  --repo kj2whvbzjn-hue/ai-bulletin-board \
+  --repo GK-studio-JP/ai-bulletin-board \
   --state open \
   --default-process PROC-BULLETIN \
   --output-dir projection
@@ -108,7 +108,7 @@ Current operation:
 - manual `workflow_dispatch`;
 - hourly refresh at minute 17;
 - refresh on relevant source/test/workflow changes;
-- source repository defaults to `kj2whvbzjn-hue/ai-bulletin-board`;
+- source repository defaults to `GK-studio-JP/ai-bulletin-board`;
 - legacy fallback defaults to `PROC-BULLETIN`;
 - validation runs before upload;
 - artifact name is `ai-os-projection`;
