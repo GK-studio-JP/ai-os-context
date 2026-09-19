@@ -2,7 +2,7 @@
 
 `ai-os-context` is the memory-management and projection layer for the GitHub-native AI OS.
 
-It does **not** replace `GK-studio-JP/ai-bulletin-board`. The bulletin board remains the canonical append-only event journal. This repository deterministically replays that journal and emits small, non-authoritative projections for LLMs.
+It does **not** replace `kj2whvbzjn-hue/ai-bulletin-board`. The bulletin board remains the canonical append-only event journal. This repository deterministically replays that journal and emits small, non-authoritative projections for LLMs.
 
 ## Why
 
@@ -60,7 +60,7 @@ Existing bulletin-board Issues work without changes. New AI-OS tasks can optiona
 ```json
 {
   "process": "PROC-AUTH",
-  "repository": "GK-studio-JP/auth",
+  "repository": "owner/auth",
   "objective": "Fix JWT refresh race",
   "priority": 80,
   "contracts": ["CTR-AUTH-004", "CTR-STORAGE-002"],
@@ -72,7 +72,7 @@ Existing bulletin-board Issues work without changes. New AI-OS tasks can optiona
 
 This envelope is routing/context metadata only. It does not alter `ai-bb:v1` ownership semantics.
 
-Scheduler rows with no process are reported as `unrouted` instead of silently becoming runnable. During migration, `--default-process` can explicitly provide a fallback for legacy Issues.
+Scheduler rows with no process are reported as `unrouted` instead of silently becoming runnable. During migration, `--default-process` can explicitly provide a fallback for legacy Issues. The current bulletin-board projection uses `PROC-BULLETIN` as that fallback.
 
 ## Install
 
@@ -92,17 +92,17 @@ Use a GitHub token with only the read permissions required for the source reposi
 export GITHUB_TOKEN=...
 
 aios-context replay \
-  --repo GK-studio-JP/ai-bulletin-board \
+  --repo kj2whvbzjn-hue/ai-bulletin-board \
   --issue 123
 
 aios-context capsule \
-  --repo GK-studio-JP/ai-bulletin-board \
+  --repo kj2whvbzjn-hue/ai-bulletin-board \
   --issue 123 \
-  --process PROC-AUTH
+  --process PROC-BULLETIN
 
 aios-context scheduler-view \
-  --repo GK-studio-JP/ai-bulletin-board \
-  --default-process PROC-LEGACY
+  --repo kj2whvbzjn-hue/ai-bulletin-board \
+  --default-process PROC-BULLETIN
 ```
 
 The replay, capsule, and scheduler-view commands write JSON to stdout by default. Use `--output file.json` when a durable local projection is wanted.
@@ -113,9 +113,9 @@ The `snapshot` command materializes one bounded boot image for Scheduler/Worker 
 
 ```bash
 aios-context snapshot \
-  --repo GK-studio-JP/ai-bulletin-board \
+  --repo kj2whvbzjn-hue/ai-bulletin-board \
   --state open \
-  --default-process PROC-LEGACY \
+  --default-process PROC-BULLETIN \
   --output-dir projection
 ```
 
@@ -143,9 +143,15 @@ Boot rule:
 
 ## GitHub Actions artifact
 
-`.github/workflows/snapshot.yml` exposes the same projection as a manual `workflow_dispatch` job and uploads `projection/` as the `ai-os-projection` artifact for seven days.
+`.github/workflows/snapshot.yml` builds the live projection:
 
-The workflow accepts the source repository, Issue state, and optional default process. For a private source repository outside `ai-os-context`, configure a repository secret named `AIOS_GITHUB_TOKEN` with read-only access to that source. If the secret is absent, the workflow falls back to the run's `github.token`.
+- manually through `workflow_dispatch`;
+- hourly at minute 17;
+- on pushes that change `src/**`, `tests/**`, or the snapshot workflow itself.
+
+The workflow defaults to `kj2whvbzjn-hue/ai-bulletin-board`, open Issues, and `PROC-BULLETIN`. It validates the manifest, scheduler view, and every referenced capsule before uploading `projection/` as the `ai-os-projection` artifact for seven days.
+
+If the source repository later requires credentials not available to the run's `github.token`, configure a repository secret named `AIOS_GITHUB_TOKEN` with read-only access to that source.
 
 The workflow does not commit projection output back to `main`; the artifact remains a disposable cache.
 
@@ -159,7 +165,7 @@ aios-context replay-files \
 aios-context capsule-files \
   --issue-file examples/issue.json \
   --comments-file examples/comments.json \
-  --process PROC-AUTH
+  --process PROC-BULLETIN
 ```
 
 ## Recommended first migration
