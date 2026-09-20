@@ -8,7 +8,18 @@ def issue(number=1, body=""):
     return {"number": number, "title": "Task", "body": body}
 
 
-def event(cid, created, typ, agent="a", key=None, next_action="next", artifacts=None, updated=None):
+def event(
+    cid,
+    created,
+    typ,
+    agent="a",
+    key=None,
+    next_action="next",
+    artifacts=None,
+    updated=None,
+    actor="repo-owner",
+    association="OWNER",
+):
     if typ == "RESULT":
         next_action = None
     payload = {
@@ -26,6 +37,8 @@ def event(cid, created, typ, agent="a", key=None, next_action="next", artifacts=
         "created_at": created,
         "updated_at": updated or created,
         "body": "<!-- ai-bb:v1 -->\n```json\n" + json.dumps(payload) + "\n```",
+        "user": {"login": actor},
+        "author_association": association,
     }
 
 
@@ -107,6 +120,57 @@ class ReplayTests(unittest.TestCase):
         result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
         self.assertEqual(result.state, "history_unsafe")
         self.assertFalse(result.history_safe)
+
+    def test_untrusted_claim_and_result_are_ignored(self):
+        comments = [
+            event(1, "2026-09-19T00:00:00Z", "CLAIM", "attacker", actor="outsider", association="NONE"),
+            event(2, "2026-09-19T00:00:01Z", "RESULT", "attacker", actor="outsider", association="NONE"),
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.state, "open")
+        self.assertIsNone(result.owner)
+        self.assertEqual(result.canonical_event_count, 0)
+
+    def test_same_agent_id_from_different_trusted_actor_cannot_complete(self):
+        comments = [
+            event(1, "2026-09-19T00:00:00Z", "CLAIM", "worker-1", actor="owner-a"),
+            event(2, "2026-09-19T00:03:00Z", "RESULT", "worker-1", actor="owner-b"),
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:04:00Z"))
+        self.assertEqual(result.state, "claimed")
+        self.assertEqual(result.owner, "worker-1")
+        self.assertIsNone(result.latest_result)
+
+    def test_untrusted_edited_marker_cannot_force_history_unsafe(self):
+        comments = [
+            event(
+                1,
+                "2026-09-19T00:00:00Z",
+                "CLAIM",
+                "attacker",
+                actor="outsider",
+                association="NONE",
+                updated="2026-09-19T00:01:00Z",
+            )
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.state, "open")
+        self.assertTrue(result.history_safe)
+
+    def test_github_actions_bot_is_trusted(self):
+        comments = [
+            event(
+                1,
+                "2026-09-19T00:00:00Z",
+                "CLAIM",
+                "worker-bot",
+                actor="github-actions[bot]",
+                association="NONE",
+            )
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.state, "claimed")
+        self.assertEqual(result.owner, "worker-bot")
 
 
 if __name__ == "__main__":
