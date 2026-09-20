@@ -45,12 +45,22 @@ def _serialized_chars(value: Any) -> int:
 
 def _source_refs(issue: dict[str, Any], replay: ReplayResult) -> list[str]:
     refs = [f"issue:{replay.task}"]
+    for ref in (
+        replay.claim_ref,
+        getattr(replay.latest_progress, "ref", None),
+        getattr(replay.latest_handoff, "ref", None),
+        getattr(replay.latest_result, "ref", None),
+        getattr(replay.latest_review, "ref", None),
+        getattr(replay.latest_owner_event, "ref", None),
+    ):
+        if isinstance(ref, str) and ref:
+            refs.append(ref)
     if replay.through_comment_id is not None:
         refs.append(f"comment:{replay.through_comment_id}")
     issue_url = issue.get("html_url")
     if isinstance(issue_url, str) and issue_url:
         refs.append(issue_url)
-    return refs
+    return _dedupe(refs)
 
 
 def _source_fingerprint(
@@ -128,46 +138,50 @@ def _enforce_context_budget(capsule: dict[str, Any], max_chars: int) -> None:
     memory["page_in_required"] = True
 
     execution = capsule["execution"]
-    list_targets = [
-        ("memory.context_refs", memory["context_refs"]),
-        ("memory.contracts", memory["contracts"]),
-        ("task.acceptance", capsule["task"]["acceptance"]),
-    ]
-    for event_name in (
+    event_names = (
         "latest_owner_event",
         "latest_review",
         "latest_result",
         "latest_handoff",
         "latest_progress",
-    ):
-        event = execution.get(event_name)
-        if isinstance(event, dict):
-            list_targets.append((f"execution.{event_name}.artifacts", event["artifacts"]))
+    )
 
-    for path, values in list_targets:
+    # Discard verbose execution evidence before task requirements or memory refs.
+    for event_name in event_names:
+        event = execution.get(event_name)
+        if not isinstance(event, dict):
+            continue
+        artifacts = event["artifacts"]
+        while artifacts and _update_budget_usage(capsule) > max_chars:
+            _pop_list(capsule, f"execution.{event_name}.artifacts", artifacts)
+
+    # Summaries are descriptive; preserve next_action longer because it is actionable.
+    for key in ("summary", "next_action"):
+        for event_name in event_names:
+            event = execution.get(event_name)
+            if not isinstance(event, dict):
+                continue
+            path = f"execution.{event_name}.{key}"
+            while _update_budget_usage(capsule) > max_chars and _shrink_text(capsule, path, event, key):
+                pass
+
+    # Page-in references and contracts are reduced only after execution verbosity.
+    for path, values in (
+        ("memory.context_refs", memory["context_refs"]),
+        ("memory.contracts", memory["contracts"]),
+    ):
         while values and _update_budget_usage(capsule) > max_chars:
             _pop_list(capsule, path, values)
 
-    text_targets: list[tuple[str, dict[str, Any], str]] = []
-    for event_name in (
-        "latest_owner_event",
-        "latest_review",
-        "latest_result",
-        "latest_handoff",
-        "latest_progress",
-    ):
-        event = execution.get(event_name)
-        if isinstance(event, dict):
-            text_targets.extend(
-                [
-                    (f"execution.{event_name}.next_action", event, "next_action"),
-                    (f"execution.{event_name}.summary", event, "summary"),
-                ]
-            )
-    text_targets.append(("task.objective", capsule["task"], "objective"))
-    text_targets.append(("task.title", capsule["task"], "title"))
+    # Acceptance criteria are retained until lower-value context has been exhausted.
+    acceptance = capsule["task"]["acceptance"]
+    while acceptance and _update_budget_usage(capsule) > max_chars:
+        _pop_list(capsule, "task.acceptance", acceptance)
 
-    for path, holder, key in text_targets:
+    for path, holder, key in (
+        ("task.objective", capsule["task"], "objective"),
+        ("task.title", capsule["task"], "title"),
+    ):
         while _update_budget_usage(capsule) > max_chars and _shrink_text(capsule, path, holder, key):
             pass
 
