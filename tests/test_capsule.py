@@ -79,6 +79,7 @@ class CapsuleTests(unittest.TestCase):
         )
         self.assertRegex(capsule["source"]["source_fingerprint"], r"^sha256:[0-9a-f]{64}$")
         self.assertIn("issue:#1", capsule["source"]["source_refs"])
+        self.assertIn("comment:10", capsule["source"]["source_refs"])
         self.assertIn("comment:11", capsule["source"]["source_refs"])
         self.assertIn(issue["html_url"], capsule["source"]["source_refs"])
 
@@ -172,6 +173,40 @@ class CapsuleTests(unittest.TestCase):
             first["source"]["source_fingerprint"],
             changed["source"]["source_fingerprint"],
         )
+
+    def test_budget_preserves_acceptance_before_verbose_execution_context(self):
+        body = '''<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-AUTH","repository":"GK-studio-JP/auth","objective":"Small objective","acceptance":["must keep"]}
+```
+'''
+        issue = {"number": 1, "title": "Task", "body": body, "html_url": "https://example.invalid/1"}
+        comments = [
+            protocol_comment(10, "2026-09-19T00:00:00Z", "CLAIM", key="c1", summary="claimed"),
+            protocol_comment(
+                11,
+                "2026-09-19T00:01:00Z",
+                "PROGRESS",
+                key="p1",
+                summary="P" * 10_000,
+                next_action="N" * 10_000,
+                artifacts=[f"artifact:{i}-" + ("X" * 1000) for i in range(16)],
+            ),
+        ]
+        state = replay(issue, comments, NOW)
+        capsule = build_capsule(issue, state, max_chars=4096)
+
+        self.assertTrue(capsule["context_budget"]["truncated"])
+        self.assertTrue(capsule["context_budget"]["enforced"])
+        self.assertEqual(capsule["task"]["acceptance"], ["must keep"])
+        self.assertTrue(
+            any(
+                path.startswith("execution.")
+                for path in capsule["context_budget"]["omitted_paths"]
+            )
+        )
+        self.assertIn("comment:10", capsule["source"]["source_refs"])
+        self.assertIn("comment:11", capsule["source"]["source_refs"])
 
     def test_context_budget_rejects_too_small_limit(self):
         issue = {"number": 1, "title": "Task", "body": ""}
