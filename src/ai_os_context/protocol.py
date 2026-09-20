@@ -10,6 +10,8 @@ MARKER = "<!-- ai-bb:v1 -->"
 TASK_MARKER = "<!-- ai-os-task:v1 -->"
 LEASE_SECONDS = 900
 EVENT_TYPES = {"CLAIM", "HEARTBEAT", "RELEASE", "PROGRESS", "HANDOFF", "RESULT", "REVIEW"}
+TRUSTED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
+TRUSTED_BOT_LOGINS = {"github-actions[bot]"}
 REQUIRED_FIELDS = {
     "type",
     "agent_id",
@@ -27,6 +29,7 @@ class CanonicalEvent:
     comment_id: int
     payload: dict[str, Any]
     comment: dict[str, Any]
+    actor_login: str
 
     @property
     def ref(self) -> str:
@@ -35,6 +38,24 @@ class CanonicalEvent:
 
 def parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def trusted_comment_actor(comment: dict[str, Any]) -> str | None:
+    """Return the GitHub login allowed to contribute protocol state.
+
+    Protocol JSON is untrusted by itself. Canonical state changes require a
+    repository-authorized GitHub principal, or the repository GitHub Actions bot.
+    """
+    user = comment.get("user")
+    login = user.get("login") if isinstance(user, dict) else None
+    if not isinstance(login, str) or not login.strip():
+        return None
+    if login in TRUSTED_BOT_LOGINS:
+        return login
+    association = comment.get("author_association")
+    if isinstance(association, str) and association.upper() in TRUSTED_AUTHOR_ASSOCIATIONS:
+        return login
+    return None
 
 
 def _extract_json_after_marker(body: str, marker: str) -> dict[str, Any] | None:
@@ -108,13 +129,16 @@ def is_canonical(payload: dict[str, Any], issue_number: int) -> bool:
 
 
 def history_defect_reason(comments: list[dict[str, Any]]) -> str | None:
-    """Return a fail-closed reason when GitHub-native evidence proves an unsafe edit.
+    """Return a fail-closed reason when trusted GitHub evidence proves an unsafe edit.
 
     GitHub's ordinary comments API cannot prove that a historical deletion never
-    happened. It *can* expose edits through created_at/updated_at. v0.1 therefore
-    detects only evidence it actually has and never invents deletion evidence.
+    happened. It *can* expose edits through created_at/updated_at. Only comments
+    from trusted protocol actors participate, so an untrusted marker comment
+    cannot force a canonical Issue into ``history_unsafe`` by editing itself.
     """
     for comment in comments:
+        if trusted_comment_actor(comment) is None:
+            continue
         body = comment.get("body") or ""
         if MARKER not in body:
             continue
@@ -129,6 +153,9 @@ def canonical_events(issue: dict[str, Any], comments: list[dict[str, Any]]) -> l
     number = int(issue["number"])
     events: list[CanonicalEvent] = []
     for comment in comments:
+        actor_login = trusted_comment_actor(comment)
+        if actor_login is None:
+            continue
         payload = extract_event_payload(comment.get("body") or "")
         if payload is None or not is_canonical(payload, number):
             continue
@@ -138,6 +165,7 @@ def canonical_events(issue: dict[str, Any], comments: list[dict[str, Any]]) -> l
                 comment_id=int(comment["id"]),
                 payload=payload,
                 comment=comment,
+                actor_login=actor_login,
             )
         )
     events.sort(key=lambda event: (event.created_at, event.comment_id))
