@@ -73,7 +73,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
 
     task = f"#{int(issue['number'])}"
     defect = history_defect_reason(comments)
-    events = canonical_events(issue, commments)
+    events = canonical_events(issue, comments)
     through_comment_id = max((int(c["id"]) for c in comments if c.get("id") is not None), default=None)
 
     if defect:
