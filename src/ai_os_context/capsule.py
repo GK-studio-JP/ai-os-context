@@ -20,6 +20,7 @@ def _event_dict(event):
     return {
         "type": event.type,
         "agent_id": event.agent_id,
+        "actor_login": event.actor_login,
         "ref": event.ref,
         "created_at": event.created_at,
         "summary": event.summary,
@@ -218,7 +219,7 @@ def build_capsule(
         if event:
             context_refs.extend(event.artifacts)
 
-    raw_fingerprint = f"{issue.get('number')}|{replay.through_comment_id}|{replay.state}|{replay.owner or ''}"
+    raw_fingerprint = f"{issue.get('number')}|{replay.through_comment_id}|{replay.state}|{replay.owner or ''}|{replay.owner_actor or ''}"
     fingerprint = hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()[:20]
 
     missing: list[str] = []
@@ -261,6 +262,7 @@ def build_capsule(
             "history_safe": replay.history_safe,
             "history_unsafe_reason": replay.history_unsafe_reason,
             "owner": replay.owner,
+            "owner_actor": replay.owner_actor,
             "claim_ref": replay.claim_ref,
             "lease_status": replay.lease_status,
             "lease_expires_at": replay.lease_expires_at,

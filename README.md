@@ -190,3 +190,12 @@ Do not rewrite the bulletin board first.
 6. Add Kernel/Scheduler repositories after the context reduction is proven.
 
 See `docs/MIGRATION.md`.
+
+## Actor identity projection contract
+
+`REPLAY_CONTRACT = "actor-binding-v1"` exports `owner_actor` alongside the
+existing `owner` agent ID. Capsules and scheduler rows retain both fields;
+event snapshots retain `actor_login`, including completed results. Consumers
+must compare both identity components to the trusted execution host identity.
+An absent actor is unknown, never a wildcard. Release, completion, expiry and
+unsafe history have no live owner actor. Capsule fingerprints include the actor.
