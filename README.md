@@ -37,6 +37,16 @@ The LLM receives the current state and exact source references, not the whole jo
 7. Missing context is surfaced as a missing reference; it is not guessed.
 8. Ownership-sensitive mutation must refresh canonical GitHub state before acting.
 
+## Context budget and provenance
+
+Context Capsules are non-authoritative projections with a default budget of 20,000 rendered JSON characters. The budget is deterministic: it is measured from pretty JSON with sorted keys.
+
+Each capsule includes a `context_budget` object with the configured limit, rendered size, truncation/enforcement state, and `omitted_paths`. It also carries `source.source_refs` plus a full SHA-256 `source.source_fingerprint` for the Issue + replay projection boundary. These lineage fields help detect a changed projection input; they do not replace canonical GitHub state.
+
+When a capsule exceeds its budget, reduction is limited to non-authoritative contextual material such as context references, contracts, acceptance details, execution artifacts, and long descriptive text. Authority, capabilities, blockers, source metadata, and replay state are preserved. The capsule then sets `context_budget.truncated=true`, `memory.page_in_required=true`, and adds `context_budget` to `memory.missing` so the worker must explicitly page in omitted evidence instead of guessing.
+
+The `capsule`, `capsule-files`, and `snapshot` commands accept `--max-chars`. The minimum supported limit is 4096 characters; the default is 20000.
+
 ## Compatibility
 
 v0.1 implements the current `<!-- ai-bb:v1 -->` event envelope:
