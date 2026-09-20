@@ -3,19 +3,106 @@
   "$id": "https://gk-studio-jp.example/schemas/ai-os-context-capsule-v1.json",
   "title": "AI OS Context Capsule v1",
   "type": "object",
-  "required": ["schema", "authoritative", "source", "identity", "task", "authority", "execution", "memory", "replay", "instructions"],
+  "required": [
+    "schema",
+    "authoritative",
+    "source",
+    "identity",
+    "task",
+    "authority",
+    "execution",
+    "memory",
+    "replay",
+    "instructions"
+  ],
   "properties": {
-    "schema": {"const": "ai-os-context-capsule:v1"},
-    "authoritative": {"const": false},
-    "fingerprint": {"type": "string", "minLength": 10},
-    "source": {"type": "object"},
-    "identity": {"type": "object"},
-    "task": {"type": "object"},
-    "authority": {"type": "object"},
-    "execution": {"type": "object"},
-    "memory": {"type": "object"},
-    "replay": {"type": "object"},
-    "instructions": {"type": "array", "items": {"type": "string"}}
+    "schema": {
+      "const": "ai-os-context-capsule:v1"
+    },
+    "authoritative": {
+      "const": false
+    },
+    "fingerprint": {
+      "type": "string",
+      "minLength": 10
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "source_refs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "source_fingerprint": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      },
+      "additionalProperties": true
+    },
+    "identity": {
+      "type": "object"
+    },
+    "task": {
+      "type": "object"
+    },
+    "authority": {
+      "type": "object"
+    },
+    "execution": {
+      "type": "object"
+    },
+    "memory": {
+      "type": "object"
+    },
+    "replay": {
+      "type": "object"
+    },
+    "instructions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "context_budget": {
+      "type": "object",
+      "required": [
+        "max_chars",
+        "used_chars",
+        "truncated",
+        "enforced",
+        "omitted_paths",
+        "measure"
+      ],
+      "properties": {
+        "max_chars": {
+          "type": "integer",
+          "minimum": 4096
+        },
+        "used_chars": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        },
+        "enforced": {
+          "type": "boolean"
+        },
+        "omitted_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "measure": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
   },
   "additionalProperties": true
 }
