@@ -8,6 +8,20 @@ from .replay import ReplayResult
 
 
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+TRUSTED_TASK_LABEL = "ai-os-trusted-task"
+
+
+def _label_names(issue: dict[str, Any]) -> set[str]:
+    names: set[str] = set()
+    labels = issue.get("labels")
+    if not isinstance(labels, list):
+        return names
+    for label in labels:
+        if isinstance(label, str):
+            names.add(label)
+        elif isinstance(label, dict) and isinstance(label.get("name"), str):
+            names.add(label["name"])
+    return names
 
 
 def scheduler_row(
@@ -32,7 +46,16 @@ def scheduler_row(
     author = issue.get("user") if isinstance(issue.get("user"), dict) else {}
     author_login = str(author.get("login") or "")
     author_association = str(issue.get("author_association") or "").upper()
-    trusted_author = author_association in TRUSTED_AUTHOR_ASSOCIATIONS
+    labels = _label_names(issue)
+    trusted_by_association = author_association in TRUSTED_AUTHOR_ASSOCIATIONS
+    trusted_by_label = TRUSTED_TASK_LABEL in labels
+    trusted = trusted_by_association or trusted_by_label
+    if trusted_by_association:
+        trust_basis = "author_association"
+    elif trusted_by_label:
+        trust_basis = "trusted_label"
+    else:
+        trust_basis = None
 
     return {
         "task": replay.task,
@@ -41,7 +64,9 @@ def scheduler_row(
         "admission": {
             "author_login": author_login,
             "author_association": author_association,
-            "trusted": trusted_author,
+            "trusted": trusted,
+            "trust_basis": trust_basis,
+            "trusted_label": TRUSTED_TASK_LABEL if trusted_by_label else None,
         },
         "state": replay.state,
         "process": process,
