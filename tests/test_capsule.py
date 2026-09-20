@@ -19,12 +19,16 @@ class CapsuleTests(unittest.TestCase):
                 "id": 10,
                 "created_at": "2026-09-19T00:00:00Z",
                 "updated_at": "2026-09-19T00:00:00Z",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
                 "body": '<!-- ai-bb:v1 -->\n```json\n{"type":"CLAIM","agent_id":"a","task":"#1","idempotency_key":"c1","summary":"claimed","next_action":"work","artifacts":[]}\n```',
             },
             {
                 "id": 11,
                 "created_at": "2026-09-19T00:01:00Z",
                 "updated_at": "2026-09-19T00:01:00Z",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
                 "body": '<!-- ai-bb:v1 -->\n```json\n{"type":"PROGRESS","agent_id":"a","task":"#1","idempotency_key":"p1","summary":"made progress","next_action":"test","artifacts":["commit:abcdef1"]}\n```',
             },
         ]
