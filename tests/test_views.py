@@ -93,5 +93,72 @@ class ViewTests(unittest.TestCase):
         self.assertTrue(row["routing_ready"])
 
 
+    def test_owner_issue_is_trusted_for_admission(self):
+        issue = {
+            "number": 9,
+            "title": "trusted browser task",
+            "body": """<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-RUNTIME-BROWSER-WORKER","repository":"GK-studio-JP/ai-os-runtime-browser-worker"}
+```
+""",
+            "html_url": "https://example.invalid/issues/9",
+            "user": {"login": "repo-owner"},
+            "author_association": "OWNER",
+            "labels": [],
+        }
+        state = replay(issue, [], NOW)
+
+        row = scheduler_row(issue, state)
+
+        self.assertTrue(row["admission"]["trusted"])
+        self.assertEqual(row["admission"]["author_login"], "repo-owner")
+        self.assertEqual(row["admission"]["author_association"], "OWNER")
+        self.assertEqual(row["admission"]["trust_basis"], "author_association")
+
+    def test_outside_issue_is_not_trusted_without_label(self):
+        issue = {
+            "number": 10,
+            "title": "untrusted browser task",
+            "body": """<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-RUNTIME-BROWSER-WORKER","repository":"GK-studio-JP/ai-os-runtime-browser-worker"}
+```
+""",
+            "html_url": "https://example.invalid/issues/10",
+            "user": {"login": "outside-user"},
+            "author_association": "NONE",
+            "labels": [],
+        }
+        state = replay(issue, [], NOW)
+
+        row = scheduler_row(issue, state)
+
+        self.assertFalse(row["admission"]["trusted"])
+        self.assertIsNone(row["admission"]["trust_basis"])
+
+    def test_explicit_trusted_label_admits_external_author(self):
+        issue = {
+            "number": 11,
+            "title": "labeled browser task",
+            "body": """<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-RUNTIME-BROWSER-WORKER","repository":"GK-studio-JP/ai-os-runtime-browser-worker"}
+```
+""",
+            "html_url": "https://example.invalid/issues/11",
+            "user": {"login": "outside-user"},
+            "author_association": "NONE",
+            "labels": [{"name": "ai-os-trusted-task"}],
+        }
+        state = replay(issue, [], NOW)
+
+        row = scheduler_row(issue, state)
+
+        self.assertTrue(row["admission"]["trusted"])
+        self.assertEqual(row["admission"]["trust_basis"], "trusted_label")
+        self.assertEqual(row["admission"]["trusted_label"], "ai-os-trusted-task")
+
+
 if __name__ == "__main__":
     unittest.main()
