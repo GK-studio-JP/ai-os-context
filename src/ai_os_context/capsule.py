@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -9,6 +10,8 @@ from .protocol import extract_task_envelope
 from .replay import ReplayResult
 
 WORKSTREAM_RE = re.compile(r"(?mi)^workstream:\s*([a-z0-9._/-]+)\s*$")
+DEFAULT_CONTEXT_MAX_CHARS = 20_000
+MIN_CONTEXT_MAX_CHARS = 4_096
 
 
 def _event_dict(event):
@@ -35,6 +38,146 @@ def _dedupe(values: list[str]) -> list[str]:
     return out
 
 
+def _serialized_chars(value: Any) -> int:
+    """Measure deterministic pretty-JSON characters for context budgeting."""
+    return len(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def _source_refs(issue: dict[str, Any], replay: ReplayResult) -> list[str]:
+    refs = [f"issue:{replay.task}"]
+    if replay.through_comment_id is not None:
+        refs.append(f"comment:{replay.through_comment_id}")
+    issue_url = issue.get("html_url")
+    if isinstance(issue_url, str) and issue_url:
+        refs.append(issue_url)
+    return refs
+
+
+def _source_fingerprint(
+    issue: dict[str, Any],
+    replay: ReplayResult,
+    source_repository: str | None,
+) -> str:
+    """Fingerprint the deterministic projection boundary, not raw GitHub contents."""
+    material = {
+        "repository": source_repository,
+        "issue": {
+            "number": issue.get("number"),
+            "title": issue.get("title"),
+            "body": issue.get("body"),
+            "html_url": issue.get("html_url"),
+        },
+        "replay": replay.to_dict(),
+    }
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
+def _mark_omitted(capsule: dict[str, Any], path: str) -> None:
+    budget = capsule["context_budget"]
+    if path not in budget["omitted_paths"]:
+        budget["omitted_paths"].append(path)
+
+
+def _pop_list(capsule: dict[str, Any], path: str, values: list[Any]) -> bool:
+    if not values:
+        return False
+    values.pop()
+    _mark_omitted(capsule, path)
+    return True
+
+
+def _shrink_text(capsule: dict[str, Any], path: str, holder: dict[str, Any], key: str) -> bool:
+    value = holder.get(key)
+    if not isinstance(value, str) or not value:
+        return False
+    if len(value) <= 128:
+        holder[key] = None
+    else:
+        keep = max(128, len(value) // 2)
+        holder[key] = value[: keep - 1] + "…"
+    _mark_omitted(capsule, path)
+    return True
+
+
+def _update_budget_usage(capsule: dict[str, Any]) -> int:
+    budget = capsule["context_budget"]
+    for _ in range(4):
+        used = _serialized_chars(capsule)
+        if budget["used_chars"] == used:
+            break
+        budget["used_chars"] = used
+    return _serialized_chars(capsule)
+
+
+def _enforce_context_budget(capsule: dict[str, Any], max_chars: int) -> None:
+    if not isinstance(max_chars, int) or isinstance(max_chars, bool):
+        raise TypeError("max_chars must be an integer")
+    if max_chars < MIN_CONTEXT_MAX_CHARS:
+        raise ValueError(f"max_chars must be >= {MIN_CONTEXT_MAX_CHARS}")
+
+    budget = capsule["context_budget"]
+    budget["max_chars"] = max_chars
+    if _update_budget_usage(capsule) <= max_chars:
+        return
+
+    budget["truncated"] = True
+    memory = capsule["memory"]
+    if "context_budget" not in memory["missing"]:
+        memory["missing"].append("context_budget")
+    memory["page_in_required"] = True
+
+    execution = capsule["execution"]
+    list_targets = [
+        ("memory.context_refs", memory["context_refs"]),
+        ("memory.contracts", memory["contracts"]),
+        ("task.acceptance", capsule["task"]["acceptance"]),
+    ]
+    for event_name in (
+        "latest_owner_event",
+        "latest_review",
+        "latest_result",
+        "latest_handoff",
+        "latest_progress",
+    ):
+        event = execution.get(event_name)
+        if isinstance(event, dict):
+            list_targets.append((f"execution.{event_name}.artifacts", event["artifacts"]))
+
+    for path, values in list_targets:
+        while values and _update_budget_usage(capsule) > max_chars:
+            _pop_list(capsule, path, values)
+
+    text_targets: list[tuple[str, dict[str, Any], str]] = []
+    for event_name in (
+        "latest_owner_event",
+        "latest_review",
+        "latest_result",
+        "latest_handoff",
+        "latest_progress",
+    ):
+        event = execution.get(event_name)
+        if isinstance(event, dict):
+            text_targets.extend(
+                [
+                    (f"execution.{event_name}.next_action", event, "next_action"),
+                    (f"execution.{event_name}.summary", event, "summary"),
+                ]
+            )
+    text_targets.append(("task.objective", capsule["task"], "objective"))
+    text_targets.append(("task.title", capsule["task"], "title"))
+
+    for path, holder, key in text_targets:
+        while _update_budget_usage(capsule) > max_chars and _shrink_text(capsule, path, holder, key):
+            pass
+
+    used = _update_budget_usage(capsule)
+    budget["enforced"] = used <= max_chars
+    if not budget["enforced"]:
+        _mark_omitted(capsule, "fixed_projection_overhead")
+        _update_budget_usage(capsule)
+
+
 def build_capsule(
     issue: dict[str, Any],
     replay: ReplayResult,
@@ -42,6 +185,7 @@ def build_capsule(
     process: str | None = None,
     source_repository: str | None = None,
     generated_at: datetime | None = None,
+    max_chars: int = DEFAULT_CONTEXT_MAX_CHARS,
 ) -> dict[str, Any]:
     generated_at = generated_at or datetime.now(timezone.utc)
     body = issue.get("body") or ""
@@ -82,6 +226,8 @@ def build_capsule(
             "issue_url": issue.get("html_url"),
             "through_comment_id": replay.through_comment_id,
             "canonical_state": "GitHub Issue body + creation-time canonical comments",
+            "source_refs": _source_refs(issue, replay),
+            "source_fingerprint": _source_fingerprint(issue, replay, source_repository),
         },
         "identity": {
             "process": selected_process,
@@ -124,6 +270,14 @@ def build_capsule(
             "idempotency_conflicts": replay.idempotency_conflicts,
             "reclaim_count": replay.reclaim_count,
         },
+        "context_budget": {
+            "max_chars": max_chars,
+            "used_chars": 0,
+            "truncated": False,
+            "enforced": True,
+            "omitted_paths": [],
+            "measure": "deterministic pretty JSON characters (sort_keys=true)",
+        },
         "instructions": [
             "Treat this capsule as a projection, not as the source of truth.",
             "Do not infer missing repository internals from another process.",
@@ -131,4 +285,5 @@ def build_capsule(
             "Before ownership-sensitive mutation, refresh/replay canonical GitHub state.",
         ],
     }
+    _enforce_context_budget(capsule, max_chars)
     return capsule
