@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .capsule import build_capsule
+from .capsule import DEFAULT_CONTEXT_MAX_CHARS, build_capsule
 from .github import GitHubClient
 from .protocol import extract_task_envelope
 from .replay import replay
@@ -61,6 +61,7 @@ def command_capsule(args: argparse.Namespace) -> None:
         process=args.process,
         source_repository=args.repo,
         generated_at=now,
+        max_chars=args.max_chars,
     )
     _emit(capsule, args.output)
 
@@ -83,6 +84,7 @@ def command_capsule_files(args: argparse.Namespace) -> None:
         process=args.process,
         source_repository=args.repo,
         generated_at=now,
+        max_chars=args.max_chars,
     )
     _emit(capsule, args.output)
 
@@ -136,6 +138,7 @@ def command_snapshot(args: argparse.Namespace) -> None:
             process=process,
             source_repository=args.repo,
             generated_at=now,
+            max_chars=args.max_chars,
         )
         relative_path = f"capsules/issue-{number}.json"
         _write_json(out / relative_path, capsule)
@@ -192,6 +195,17 @@ def parser() -> argparse.ArgumentParser:
         p.add_argument("--output")
         p.add_argument("--at", help="evaluation time ISO-8601; defaults to now")
 
+    def context_budget_flag(p):
+        p.add_argument(
+            "--max-chars",
+            type=int,
+            default=DEFAULT_CONTEXT_MAX_CHARS,
+            help=(
+                "maximum rendered Context Capsule characters "
+                f"(minimum 4096; default {DEFAULT_CONTEXT_MAX_CHARS})"
+            ),
+        )
+
     p = sub.add_parser("replay", help="replay one live GitHub Issue")
     p.add_argument("--repo", required=True)
     p.add_argument("--issue", required=True, type=int)
@@ -202,6 +216,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--repo", required=True)
     p.add_argument("--issue", required=True, type=int)
     p.add_argument("--process")
+    context_budget_flag(p)
     output_flags(p)
     p.set_defaults(func=command_capsule)
 
@@ -227,6 +242,7 @@ def parser() -> argparse.ArgumentParser:
         help="explicit fallback process for legacy Issues without ai-os-task:v1",
     )
     p.add_argument("--at", help="evaluation time ISO-8601; defaults to now")
+    context_budget_flag(p)
     p.set_defaults(func=command_snapshot)
 
     p = sub.add_parser("replay-files", help="offline deterministic replay")
@@ -240,6 +256,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--comments-file", required=True)
     p.add_argument("--process")
     p.add_argument("--repo")
+    context_budget_flag(p)
     output_flags(p)
     p.set_defaults(func=command_capsule_files)
 
