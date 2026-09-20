@@ -7,6 +7,9 @@ from .protocol import extract_task_envelope
 from .replay import ReplayResult
 
 
+TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
 def scheduler_row(
     issue: dict[str, Any],
     replay: ReplayResult,
@@ -26,10 +29,20 @@ def scheduler_row(
     if replay.latest_owner_event:
         next_action = replay.latest_owner_event.next_action
 
+    author = issue.get("user") if isinstance(issue.get("user"), dict) else {}
+    author_login = str(author.get("login") or "")
+    author_association = str(issue.get("author_association") or "").upper()
+    trusted_author = author_association in TRUSTED_AUTHOR_ASSOCIATIONS
+
     return {
         "task": replay.task,
         "title": issue.get("title") or "",
         "issue_url": issue.get("html_url"),
+        "admission": {
+            "author_login": author_login,
+            "author_association": author_association,
+            "trusted": trusted_author,
+        },
         "state": replay.state,
         "process": process,
         "process_source": process_source,
