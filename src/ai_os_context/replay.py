@@ -104,6 +104,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
     seen: dict[str, str] = {}
     conflicts = 0
     owner: str | None = None
+    owner_actor: str | None = None
     expiry: datetime | None = None
     claim_ref: str | None = None
     claim_at: datetime | None = None
@@ -121,7 +122,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
     latest_owner_event = None
 
     def expire_current(at: datetime) -> None:
-        nonlocal owner, expiry, claim_ref, claim_at
+        nonlocal owner, owner_actor, expiry, claim_ref, claim_at
         nonlocal prior_owner, prior_claim_ref, prior_expiry, awaiting_reclaim
         if owner is not None:
             prior_owner = owner
@@ -129,6 +130,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
             prior_expiry = at
             awaiting_reclaim = True
         owner = None
+        owner_actor = None
         expiry = None
         claim_ref = None
         claim_at = None
@@ -149,6 +151,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
             expire_current(expiry)
 
         live = owner is not None and expiry is not None and event.created_at < expiry
+        same_owner = live and payload["agent_id"] == owner and event.actor_login == owner_actor
         typ = payload["type"]
 
         if typ == "CLAIM":
@@ -157,40 +160,43 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
                     reclaim_count += 1
                     awaiting_reclaim = False
                 owner = payload["agent_id"]
+                owner_actor = event.actor_login
                 claim_ref = event.ref
                 claim_at = event.created_at
                 expiry = event.created_at + timedelta(seconds=LEASE_SECONDS)
                 latest_owner_event = _snapshot(event)
 
         elif typ == "HEARTBEAT":
-            if live and payload["agent_id"] == owner:
+            if same_owner:
                 expiry = event.created_at + timedelta(seconds=LEASE_SECONDS)
                 latest_owner_event = _snapshot(event)
 
         elif typ == "PROGRESS":
-            if live and payload["agent_id"] == owner:
+            if same_owner:
                 latest_progress = _snapshot(event)
                 latest_owner_event = latest_progress
 
         elif typ == "HANDOFF":
-            if live and payload["agent_id"] == owner:
+            if same_owner:
                 latest_handoff = _snapshot(event)
                 latest_owner_event = latest_handoff
 
         elif typ == "RELEASE":
-            if live and payload["agent_id"] == owner:
+            if same_owner:
                 latest_owner_event = _snapshot(event)
                 owner = None
+                owner_actor = None
                 expiry = None
                 claim_ref = None
                 claim_at = None
 
         elif typ == "RESULT":
-            if live and payload["agent_id"] == owner:
+            if same_owner:
                 latest_result = _snapshot(event)
                 latest_owner_event = latest_result
                 completed = True
                 owner = None
+                owner_actor = None
                 expiry = None
                 claim_ref = None
                 claim_at = None
