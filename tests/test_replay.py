@@ -1,3 +1,4 @@
+import json
 import unittest
 from datetime import datetime, timezone
 
@@ -31,7 +32,6 @@ def event(
         "next_action": next_action,
         "artifacts": artifacts or [],
     }
-    import json
     return {
         "id": cid,
         "created_at": created,
@@ -39,6 +39,23 @@ def event(
         "body": "<!-- ai-bb:v1 -->\n```json\n" + json.dumps(payload) + "\n```",
         "user": {"login": actor},
         "author_association": association,
+    }
+
+
+def audit_event(cid, created, typ, comment_id, *, actor="github-actions[bot]"):
+    payload = {
+        "type": typ,
+        "comment_id": comment_id,
+        "previous_body_sha256": "sha256:" + "a" * 64,
+        "current_body_sha256": "sha256:" + "b" * 64,
+    }
+    return {
+        "id": cid,
+        "created_at": created,
+        "updated_at": created,
+        "body": "<!-- ai-bb-audit:v1 -->\n```json\n" + json.dumps(payload) + "\n```",
+        "user": {"login": actor},
+        "author_association": "NONE",
     }
 
 
@@ -151,6 +168,54 @@ class ReplayTests(unittest.TestCase):
                 actor="outsider",
                 association="NONE",
                 updated="2026-09-19T00:01:00Z",
+            )
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.state, "open")
+        self.assertTrue(result.history_safe)
+
+    def test_bot_audit_detects_marker_removal_edit(self):
+        comments = [
+            {
+                "id": 1,
+                "created_at": "2026-09-19T00:00:00Z",
+                "updated_at": "2026-09-19T00:01:00Z",
+                "body": "canonical marker removed by edit",
+                "user": {"login": "repo-owner"},
+                "author_association": "OWNER",
+            },
+            audit_event(
+                2,
+                "2026-09-19T00:01:01Z",
+                "CANONICAL_COMMENT_EDITED",
+                1,
+            ),
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.state, "history_unsafe")
+        self.assertIn("protocol comment 1 was edited", result.history_unsafe_reason)
+
+    def test_bot_audit_detects_deleted_canonical_comment(self):
+        comments = [
+            audit_event(
+                2,
+                "2026-09-19T00:01:01Z",
+                "CANONICAL_COMMENT_DELETED",
+                1,
+            )
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.state, "history_unsafe")
+        self.assertIn("protocol comment 1 was deleted", result.history_unsafe_reason)
+
+    def test_non_bot_audit_cannot_force_history_unsafe(self):
+        comments = [
+            audit_event(
+                2,
+                "2026-09-19T00:01:01Z",
+                "CANONICAL_COMMENT_EDITED",
+                1,
+                actor="repo-owner",
             )
         ]
         result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
