@@ -7,9 +7,11 @@ from datetime import datetime
 from typing import Any
 
 MARKER = "<!-- ai-bb:v1 -->"
+AUDIT_MARKER = "<!-- ai-bb-audit:v1 -->"
 TASK_MARKER = "<!-- ai-os-task:v1 -->"
 LEASE_SECONDS = 900
 EVENT_TYPES = {"CLAIM", "HEARTBEAT", "RELEASE", "PROGRESS", "HANDOFF", "RESULT", "REVIEW"}
+AUDIT_EVENT_TYPES = {"CANONICAL_COMMENT_EDITED", "CANONICAL_COMMENT_DELETED"}
 TRUSTED_AUTHOR_ASSOCIATIONS = {"OWNER", "MEMBER", "COLLABORATOR"}
 TRUSTED_BOT_LOGINS = {"github-actions[bot]"}
 REQUIRED_FIELDS = {
@@ -76,6 +78,10 @@ def extract_event_payload(body: str) -> dict[str, Any] | None:
     return _extract_json_after_marker(body or "", MARKER)
 
 
+def extract_audit_payload(body: str) -> dict[str, Any] | None:
+    return _extract_json_after_marker(body or "", AUDIT_MARKER)
+
+
 def extract_task_envelope(body: str) -> dict[str, Any] | None:
     value = _extract_json_after_marker(body or "", TASK_MARKER)
     if value is None:
@@ -127,12 +133,11 @@ def is_canonical(payload: dict[str, Any], issue_number: int) -> bool:
 
 
 def history_defect_reason(comments: list[dict[str, Any]]) -> str | None:
-    """Return a fail-closed reason when trusted GitHub evidence proves an unsafe edit.
+    """Return a fail-closed reason when trusted evidence proves an unsafe mutation.
 
-    GitHub's ordinary comments API cannot prove that a historical deletion never
-    happened. It *can* expose edits through created_at/updated_at. Only comments
-    from trusted protocol actors participate, so an untrusted marker comment
-    cannot force a canonical Issue into ``history_unsafe`` by editing itself.
+    Current canonical comments are checked directly for edits. A repository
+    workflow also appends bot-authored audit comments when a canonical comment is
+    edited or deleted, including the case where the marker itself was removed.
     """
     for comment in comments:
         if trusted_comment_actor(comment) is None:
@@ -144,6 +149,20 @@ def history_defect_reason(comments: list[dict[str, Any]]) -> str | None:
         updated = comment.get("updated_at")
         if created and updated and parse_time(created) != parse_time(updated):
             return f"protocol comment {comment.get('id')} was edited"
+
+    for comment in comments:
+        user = comment.get("user")
+        login = user.get("login") if isinstance(user, dict) else None
+        if login not in TRUSTED_BOT_LOGINS:
+            continue
+        payload = extract_audit_payload(comment.get("body") or "")
+        if payload is None or payload.get("type") not in AUDIT_EVENT_TYPES:
+            continue
+        target = payload.get("comment_id")
+        if not isinstance(target, int) or isinstance(target, bool) or target <= 0:
+            continue
+        verb = "edited" if payload["type"] == "CANONICAL_COMMENT_EDITED" else "deleted"
+        return f"protocol comment {target} was {verb} (audit comment {comment.get('id')})"
     return None
 
 
