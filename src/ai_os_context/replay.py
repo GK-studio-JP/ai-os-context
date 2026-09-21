@@ -17,6 +17,7 @@ class EventSnapshot:
     summary: str
     next_action: str | None
     artifacts: list[str]
+    actor_login: str | None = None
 
 
 @dataclass
@@ -42,6 +43,8 @@ class ReplayResult:
     latest_review: EventSnapshot | None
     latest_owner_event: EventSnapshot | None
     through_comment_id: int | None
+    owner_actor: str | None = None
+    prior_owner_actor: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -56,6 +59,7 @@ def _iso(value: datetime | None) -> str | None:
 def _snapshot(event: CanonicalEvent) -> EventSnapshot:
     payload = event.payload
     return EventSnapshot(
+        actor_login=event.actor_login,
         type=payload["type"],
         agent_id=payload["agent_id"],
         ref=event.ref,
@@ -109,6 +113,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
     claim_ref: str | None = None
     claim_at: datetime | None = None
     prior_owner: str | None = None
+    prior_owner_actor: str | None = None
     prior_claim_ref: str | None = None
     prior_expiry: datetime | None = None
     awaiting_reclaim = False
@@ -123,9 +128,10 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
 
     def expire_current(at: datetime) -> None:
         nonlocal owner, owner_actor, expiry, claim_ref, claim_at
-        nonlocal prior_owner, prior_claim_ref, prior_expiry, awaiting_reclaim
+        nonlocal prior_owner, prior_owner_actor, prior_claim_ref, prior_expiry, awaiting_reclaim
         if owner is not None:
             prior_owner = owner
+            prior_owner_actor = owner_actor
             prior_claim_ref = claim_ref
             prior_expiry = at
             awaiting_reclaim = True
@@ -226,6 +232,8 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
         history_safe=True,
         history_unsafe_reason=None,
         owner=owner,
+        owner_actor=owner_actor,
+        prior_owner_actor=prior_owner_actor,
         claim_ref=claim_ref,
         lease_started_at=_iso(claim_at),
         lease_expires_at=_iso(expiry if owner else prior_expiry),

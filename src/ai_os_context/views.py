@@ -75,6 +75,7 @@ def scheduler_row(
         "target_repository": envelope.get("repository"),
         "priority": envelope.get("priority"),
         "owner": replay.owner,
+        "owner_actor": replay.owner_actor,
         "lease_status": replay.lease_status,
         "lease_expires_at": replay.lease_expires_at,
         "blocked_by": list(envelope.get("blocked_by") or []),

@@ -49,7 +49,25 @@
       "type": "object"
     },
     "authority": {
-      "type": "object"
+      "type": "object",
+      "required": [
+        "owner",
+        "owner_actor"
+      ],
+      "properties": {
+        "owner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "owner_actor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "execution": {
       "type": "object"
