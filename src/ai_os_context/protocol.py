@@ -64,8 +64,6 @@ def _extract_json_after_marker(body: str, marker: str) -> dict[str, Any] | None:
     tail = body.split(marker, 1)[1]
     match = re.search(r"```json\s*(\{.*?\})\s*```", tail, re.S | re.I)
     if not match:
-        match = re.search(r"(\{.*\})", tail, re.S)
-    if not match:
         return None
     try:
         value = json.loads(match.group(1))
