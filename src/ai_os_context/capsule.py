@@ -83,6 +83,13 @@ def source_fingerprint(
     return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
 
 
+def capsule_content_digest(capsule: dict[str, Any]) -> str:
+    """Digest the rendered capsule while excluding the digest field itself."""
+    material = {key: value for key, value in capsule.items() if key != "content_digest"}
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
 def _mark_omitted(capsule: dict[str, Any], path: str) -> None:
     budget = capsule["context_budget"]
     if path not in budget["omitted_paths"]:
@@ -234,6 +241,7 @@ def build_capsule(
         "authoritative": False,
         "generated_at": generated_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
         "fingerprint": fingerprint,
+        "content_digest": "sha256:" + ("0" * 64),
         "source": {
             "repository": source_repository,
             "task": replay.task,
@@ -300,4 +308,5 @@ def build_capsule(
         ],
     }
     _enforce_context_budget(capsule, max_chars)
+    capsule["content_digest"] = capsule_content_digest(capsule)
     return capsule
