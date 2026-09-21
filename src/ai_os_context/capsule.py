@@ -63,7 +63,7 @@ def _source_refs(issue: dict[str, Any], replay: ReplayResult) -> list[str]:
     return _dedupe(refs)
 
 
-def _source_fingerprint(
+def source_fingerprint(
     issue: dict[str, Any],
     replay: ReplayResult,
     source_repository: str | None,
@@ -241,7 +241,7 @@ def build_capsule(
             "through_comment_id": replay.through_comment_id,
             "canonical_state": "GitHub Issue body + creation-time canonical comments",
             "source_refs": _source_refs(issue, replay),
-            "source_fingerprint": _source_fingerprint(issue, replay, source_repository),
+            "source_fingerprint": source_fingerprint(issue, replay, source_repository),
         },
         "identity": {
             "process": selected_process,
