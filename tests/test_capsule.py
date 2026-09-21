@@ -3,7 +3,7 @@ import json
 import unittest
 from datetime import datetime
 
-from ai_os_context.capsule import build_capsule
+from ai_os_context.capsule import build_capsule, capsule_content_digest
 from ai_os_context.replay import replay
 
 
@@ -78,6 +78,8 @@ class CapsuleTests(unittest.TestCase):
             capsule["context_budget"]["max_chars"],
         )
         self.assertRegex(capsule["source"]["source_fingerprint"], r"^sha256:[0-9a-f]{64}$")
+        self.assertRegex(capsule["content_digest"], r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(capsule["content_digest"], capsule_content_digest(capsule))
         self.assertIn("issue:#1", capsule["source"]["source_refs"])
         self.assertIn("comment:10", capsule["source"]["source_refs"])
         self.assertIn("comment:11", capsule["source"]["source_refs"])
@@ -173,6 +175,19 @@ class CapsuleTests(unittest.TestCase):
             first["source"]["source_fingerprint"],
             changed["source"]["source_fingerprint"],
         )
+
+    def test_content_digest_detects_capsule_tampering(self):
+        body = """<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-AUTH","repository":"GK-studio-JP/auth","objective":"Do one thing"}
+```
+"""
+        issue = {"number": 1, "title": "Task", "body": body, "html_url": "https://example.invalid/1"}
+        state = replay(issue, [], NOW)
+        capsule = build_capsule(issue, state, source_repository="GK-studio-JP/ai-bulletin-board")
+        tampered = copy.deepcopy(capsule)
+        tampered["task"]["objective"] = "tampered objective"
+        self.assertNotEqual(tampered["content_digest"], capsule_content_digest(tampered))
 
     def test_budget_preserves_acceptance_before_verbose_execution_context(self):
         body = '''<!-- ai-os-task:v1 -->
