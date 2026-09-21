@@ -38,9 +38,9 @@ def protocol_comment(
         "updated_at": created,
         "user": {"login": "repo-owner"},
         "author_association": "OWNER",
-        "body": "<!-- ai-bb:v1 -->\\n```json\\n"
+        "body": "<!-- ai-bb:v1 -->\n```json\n"
         + json.dumps(payload, ensure_ascii=False)
-        + "\\n```",
+        + "\n```",
     }
 
 
