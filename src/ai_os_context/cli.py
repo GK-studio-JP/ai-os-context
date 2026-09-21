@@ -154,6 +154,7 @@ def command_snapshot(args: argparse.Namespace) -> None:
                 "process": row.get("process"),
                 "capsule": relative_path,
                 "fingerprint": capsule["fingerprint"],
+                "content_digest": capsule["content_digest"],
                 "through_comment_id": state.through_comment_id,
             }
         )
