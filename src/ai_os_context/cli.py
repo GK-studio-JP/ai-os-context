@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .capsule import DEFAULT_CONTEXT_MAX_CHARS, build_capsule
+from .capsule import DEFAULT_CONTEXT_MAX_CHARS, build_capsule, source_fingerprint
 from .github import GitHubClient
 from .protocol import extract_task_envelope
 from .replay import replay
@@ -46,7 +46,9 @@ def command_replay(args: argparse.Namespace) -> None:
     issue = client.issue(args.repo, args.issue)
     comments = client.issue_comments(args.repo, args.issue)
     result = replay(issue, comments, _parse_now(args.at))
-    _emit(result.to_dict(), args.output)
+    payload = result.to_dict()
+    payload["source_fingerprint"] = source_fingerprint(issue, result, args.repo)
+    _emit(payload, args.output)
 
 
 def command_capsule(args: argparse.Namespace) -> None:
@@ -70,7 +72,9 @@ def command_replay_files(args: argparse.Namespace) -> None:
     issue = _json_file(args.issue_file)
     comments = _json_file(args.comments_file)
     result = replay(issue, comments, _parse_now(args.at))
-    _emit(result.to_dict(), args.output)
+    payload = result.to_dict()
+    payload["source_fingerprint"] = source_fingerprint(issue, result, None)
+    _emit(payload, args.output)
 
 
 def command_capsule_files(args: argparse.Namespace) -> None:
