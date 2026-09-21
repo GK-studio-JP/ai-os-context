@@ -100,10 +100,10 @@ class CapsuleTests(unittest.TestCase):
             "capabilities": ["github:read", "github:write"],
         }
         body = (
-            "workstream: auth/test\\n"
-            "<!-- ai-os-task:v1 -->\\n```json\\n"
+            "workstream: auth/test\n"
+            "<!-- ai-os-task:v1 -->\n```json\n"
             + json.dumps(envelope)
-            + "\\n```\\n"
+            + "\n```\n"
         )
         issue = {"number": 1, "title": "T" * 5000, "body": body, "html_url": "https://example.invalid/1"}
         comments = [
