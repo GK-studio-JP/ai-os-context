@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .capsule import DEFAULT_CONTEXT_MAX_CHARS, build_capsule, source_fingerprint
+from .capsule import (
+    DEFAULT_CONTEXT_MAX_CHARS,
+    build_capsule,
+    source_fingerprint,
+    task_spec_fingerprint,
+)
 from .github import GitHubClient
 from .protocol import extract_task_envelope
 from .replay import replay
@@ -47,6 +52,7 @@ def command_replay(args: argparse.Namespace) -> None:
     comments = client.issue_comments(args.repo, args.issue)
     result = replay(issue, comments, _parse_now(args.at))
     payload = result.to_dict()
+    payload["task_spec_fingerprint"] = task_spec_fingerprint(issue, args.repo)
     payload["source_fingerprint"] = source_fingerprint(issue, result, args.repo)
     _emit(payload, args.output)
 
@@ -73,6 +79,7 @@ def command_replay_files(args: argparse.Namespace) -> None:
     comments = _json_file(args.comments_file)
     result = replay(issue, comments, _parse_now(args.at))
     payload = result.to_dict()
+    payload["task_spec_fingerprint"] = task_spec_fingerprint(issue, None)
     payload["source_fingerprint"] = source_fingerprint(issue, result, None)
     _emit(payload, args.output)
 
@@ -155,6 +162,8 @@ def command_snapshot(args: argparse.Namespace) -> None:
                 "capsule": relative_path,
                 "fingerprint": capsule["fingerprint"],
                 "content_digest": capsule["content_digest"],
+                "observed_comment_id": state.observed_comment_id,
+                "canonical_through_comment_id": state.canonical_through_comment_id,
                 "through_comment_id": state.through_comment_id,
             }
         )
