@@ -138,6 +138,24 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(result.state, "history_unsafe")
         self.assertFalse(result.history_safe)
 
+    def test_untrusted_comment_advances_observed_not_canonical_watermark(self):
+        comments = [
+            event(10, "2026-09-19T00:00:00Z", "CLAIM", "a"),
+            {
+                "id": 99,
+                "created_at": "2026-09-19T00:01:00Z",
+                "updated_at": "2026-09-19T00:01:00Z",
+                "body": "hello from an untrusted user",
+                "user": {"login": "outsider"},
+                "author_association": "NONE",
+            },
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.observed_comment_id, 99)
+        self.assertEqual(result.canonical_through_comment_id, 10)
+        self.assertEqual(result.through_comment_id, 10)
+        self.assertEqual(result.owner, "a")
+
     def test_untrusted_claim_and_result_are_ignored(self):
         comments = [
             event(1, "2026-09-19T00:00:00Z", "CLAIM", "attacker", actor="outsider", association="NONE"),
@@ -207,6 +225,21 @@ class ReplayTests(unittest.TestCase):
         result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
         self.assertEqual(result.state, "history_unsafe")
         self.assertIn("protocol comment 1 was deleted", result.history_unsafe_reason)
+
+    def test_trusted_audit_advances_canonical_watermark(self):
+        comments = [
+            audit_event(
+                25,
+                "2026-09-19T00:01:01Z",
+                "CANONICAL_COMMENT_DELETED",
+                10,
+            )
+        ]
+        result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
+        self.assertEqual(result.observed_comment_id, 25)
+        self.assertEqual(result.canonical_through_comment_id, 25)
+        self.assertEqual(result.through_comment_id, 25)
+        self.assertEqual(result.state, "history_unsafe")
 
     def test_non_bot_audit_cannot_force_history_unsafe(self):
         comments = [

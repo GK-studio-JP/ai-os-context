@@ -5,7 +5,15 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from .protocol import LEASE_SECONDS, CanonicalEvent, canonical_events, history_defect_reason
+from .protocol import (
+    AUDIT_EVENT_TYPES,
+    LEASE_SECONDS,
+    TRUSTED_BOT_LOGINS,
+    CanonicalEvent,
+    canonical_events,
+    extract_audit_payload,
+    history_defect_reason,
+)
 
 
 @dataclass
@@ -41,6 +49,8 @@ class ReplayResult:
     latest_result: EventSnapshot | None
     latest_review: EventSnapshot | None
     latest_owner_event: EventSnapshot | None
+    observed_comment_id: int | None
+    canonical_through_comment_id: int | None
     through_comment_id: int | None
 
     def to_dict(self) -> dict[str, Any]:
@@ -66,6 +76,29 @@ def _snapshot(event: CanonicalEvent) -> EventSnapshot:
     )
 
 
+def _canonical_audit_comment_ids(comments: list[dict[str, Any]]) -> list[int]:
+    ids: list[int] = []
+    for comment in comments:
+        user = comment.get("user")
+        login = user.get("login") if isinstance(user, dict) else None
+        if login not in TRUSTED_BOT_LOGINS:
+            continue
+        payload = extract_audit_payload(comment.get("body") or "")
+        if payload is None or payload.get("type") not in AUDIT_EVENT_TYPES:
+            continue
+        target = payload.get("comment_id")
+        comment_id = comment.get("id")
+        if (
+            not isinstance(target, int)
+            or isinstance(target, bool)
+            or target <= 0
+            or comment_id is None
+        ):
+            continue
+        ids.append(int(comment_id))
+    return ids
+
+
 def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime | None = None) -> ReplayResult:
     now = now or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -74,7 +107,16 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
     task = f"#{int(issue['number'])}"
     defect = history_defect_reason(comments)
     events = canonical_events(issue, comments)
-    through_comment_id = max((int(c["id"]) for c in comments if c.get("id") is not None), default=None)
+    observed_comment_id = max(
+        (int(c["id"]) for c in comments if c.get("id") is not None),
+        default=None,
+    )
+    canonical_comment_ids = [event.comment_id for event in events]
+    canonical_comment_ids.extend(_canonical_audit_comment_ids(comments))
+    canonical_through_comment_id = max(canonical_comment_ids, default=None)
+    # Backward-compatible alias: authority/freshness consumers must use the
+    # canonical watermark, never the maximum ID of arbitrary Issue comments.
+    through_comment_id = canonical_through_comment_id
 
     if defect:
         return ReplayResult(
@@ -98,6 +140,8 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
             latest_result=None,
             latest_review=None,
             latest_owner_event=None,
+            observed_comment_id=observed_comment_id,
+            canonical_through_comment_id=canonical_through_comment_id,
             through_comment_id=through_comment_id,
         )
 
@@ -241,5 +285,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
         latest_result=latest_result,
         latest_review=latest_review,
         latest_owner_event=latest_owner_event,
+        observed_comment_id=observed_comment_id,
+        canonical_through_comment_id=canonical_through_comment_id,
         through_comment_id=through_comment_id,
     )

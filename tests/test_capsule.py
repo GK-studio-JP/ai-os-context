@@ -145,6 +145,55 @@ class CapsuleTests(unittest.TestCase):
         rendered = json.dumps(capsule, ensure_ascii=False, indent=2, sort_keys=True)
         self.assertEqual(len(rendered), budget["used_chars"])
 
+    def test_untrusted_comment_does_not_change_canonical_source_fingerprint(self):
+        body = '''<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-AUTH","repository":"GK-studio-JP/auth","objective":"Do one thing"}
+```
+'''
+        issue = {"number": 1, "title": "Task", "body": body, "html_url": "https://example.invalid/1"}
+        claim = protocol_comment(
+            10,
+            "2026-09-19T00:00:00Z",
+            "CLAIM",
+            key="c1",
+            summary="claimed",
+        )
+        outsider = {
+            "id": 99,
+            "created_at": "2026-09-19T00:01:30Z",
+            "updated_at": "2026-09-19T00:01:30Z",
+            "user": {"login": "outsider"},
+            "author_association": "NONE",
+            "body": "hello",
+        }
+
+        first = build_capsule(
+            issue,
+            replay(issue, [claim], NOW),
+            source_repository="GK-studio-JP/ai-bulletin-board",
+        )
+        second = build_capsule(
+            issue,
+            replay(issue, [claim, outsider], NOW),
+            source_repository="GK-studio-JP/ai-bulletin-board",
+        )
+
+        self.assertEqual(first["source"]["canonical_through_comment_id"], 10)
+        self.assertEqual(second["source"]["canonical_through_comment_id"], 10)
+        self.assertEqual(first["source"]["through_comment_id"], 10)
+        self.assertEqual(second["source"]["through_comment_id"], 10)
+        self.assertEqual(first["source"]["observed_comment_id"], 10)
+        self.assertEqual(second["source"]["observed_comment_id"], 99)
+        self.assertEqual(
+            first["source"]["source_fingerprint"],
+            second["source"]["source_fingerprint"],
+        )
+        self.assertEqual(
+            first["source"]["task_spec_fingerprint"],
+            second["source"]["task_spec_fingerprint"],
+        )
+
     def test_source_fingerprint_tracks_projection_inputs(self):
         body = '''<!-- ai-os-task:v1 -->
 ```json
@@ -174,6 +223,48 @@ class CapsuleTests(unittest.TestCase):
         self.assertNotEqual(
             first["source"]["source_fingerprint"],
             changed["source"]["source_fingerprint"],
+        )
+
+    def test_task_spec_fingerprint_ignores_coordination_but_tracks_issue_body(self):
+        body = '''<!-- ai-os-task:v1 -->
+```json
+{"process":"PROC-AUTH","repository":"GK-studio-JP/auth","objective":"Do one thing"}
+```
+'''
+        issue = {"number": 1, "title": "Task", "body": body, "html_url": "https://example.invalid/1"}
+        open_capsule = build_capsule(
+            issue,
+            replay(issue, [], NOW),
+            source_repository="GK-studio-JP/ai-bulletin-board",
+        )
+        claimed_capsule = build_capsule(
+            issue,
+            replay(
+                issue,
+                [protocol_comment(10, "2026-09-19T00:00:00Z", "CLAIM", key="c1")],
+                NOW,
+            ),
+            source_repository="GK-studio-JP/ai-bulletin-board",
+        )
+        changed_issue = dict(issue)
+        changed_issue["body"] += "\nchanged objective context"
+        changed_capsule = build_capsule(
+            changed_issue,
+            replay(changed_issue, [], NOW),
+            source_repository="GK-studio-JP/ai-bulletin-board",
+        )
+
+        self.assertEqual(
+            open_capsule["source"]["task_spec_fingerprint"],
+            claimed_capsule["source"]["task_spec_fingerprint"],
+        )
+        self.assertNotEqual(
+            open_capsule["source"]["source_fingerprint"],
+            claimed_capsule["source"]["source_fingerprint"],
+        )
+        self.assertNotEqual(
+            open_capsule["source"]["task_spec_fingerprint"],
+            changed_capsule["source"]["task_spec_fingerprint"],
         )
 
     def test_content_digest_detects_capsule_tampering(self):

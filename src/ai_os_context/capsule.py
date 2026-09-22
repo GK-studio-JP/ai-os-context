@@ -63,12 +63,11 @@ def _source_refs(issue: dict[str, Any], replay: ReplayResult) -> list[str]:
     return _dedupe(refs)
 
 
-def source_fingerprint(
+def task_spec_fingerprint(
     issue: dict[str, Any],
-    replay: ReplayResult,
     source_repository: str | None,
 ) -> str:
-    """Fingerprint the deterministic projection boundary, not raw GitHub contents."""
+    """Fingerprint task specification independently from coordination history."""
     material = {
         "repository": source_repository,
         "issue": {
@@ -77,7 +76,28 @@ def source_fingerprint(
             "body": issue.get("body"),
             "html_url": issue.get("html_url"),
         },
-        "replay": replay.to_dict(),
+    }
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
+def source_fingerprint(
+    issue: dict[str, Any],
+    replay: ReplayResult,
+    source_repository: str | None,
+) -> str:
+    """Fingerprint task specification plus canonical coordination state."""
+    replay_material = replay.to_dict()
+    replay_material.pop("observed_comment_id", None)
+    material = {
+        "repository": source_repository,
+        "issue": {
+            "number": issue.get("number"),
+            "title": issue.get("title"),
+            "body": issue.get("body"),
+            "html_url": issue.get("html_url"),
+        },
+        "replay": replay_material,
     }
     raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return f"sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
@@ -225,7 +245,10 @@ def build_capsule(
         if event:
             context_refs.extend(event.artifacts)
 
-    raw_fingerprint = f"{issue.get('number')}|{replay.through_comment_id}|{replay.state}|{replay.owner or ''}"
+    raw_fingerprint = (
+        f"{issue.get('number')}|{replay.canonical_through_comment_id}|"
+        f"{replay.state}|{replay.owner or ''}"
+    )
     fingerprint = hashlib.sha256(raw_fingerprint.encode("utf-8")).hexdigest()[:20]
 
     missing: list[str] = []
@@ -246,9 +269,12 @@ def build_capsule(
             "repository": source_repository,
             "task": replay.task,
             "issue_url": issue.get("html_url"),
+            "observed_comment_id": replay.observed_comment_id,
+            "canonical_through_comment_id": replay.canonical_through_comment_id,
             "through_comment_id": replay.through_comment_id,
             "canonical_state": "GitHub Issue body + creation-time canonical comments",
             "source_refs": _source_refs(issue, replay),
+            "task_spec_fingerprint": task_spec_fingerprint(issue, source_repository),
             "source_fingerprint": source_fingerprint(issue, replay, source_repository),
         },
         "identity": {
