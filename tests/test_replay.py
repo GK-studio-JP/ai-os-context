@@ -71,13 +71,16 @@ class ReplayTests(unittest.TestCase):
         result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
         self.assertEqual(result.state, "claimed")
         self.assertEqual(result.owner, "a")
+        self.assertEqual(result.owner_actor, "repo-owner")
 
     def test_expiry_is_half_open(self):
         comments = [event(1, "2026-09-19T00:00:00Z", "CLAIM", "a")]
         result = replay(issue(), comments, self.at("2026-09-19T00:15:00Z"))
         self.assertEqual(result.state, "open")
         self.assertIsNone(result.owner)
+        self.assertIsNone(result.owner_actor)
         self.assertEqual(result.prior_owner, "a")
+        self.assertEqual(result.prior_owner_actor, "repo-owner")
 
     def test_heartbeat_renews(self):
         comments = [
@@ -96,6 +99,7 @@ class ReplayTests(unittest.TestCase):
         result = replay(issue(), comments, self.at("2026-09-19T01:00:00Z"))
         self.assertEqual(result.state, "completed")
         self.assertEqual(result.latest_result.artifacts, ["commit:abcdef1"])
+        self.assertEqual(result.latest_result.actor_login, "repo-owner")
 
     def test_release_opens_task(self):
         comments = [
@@ -112,7 +116,9 @@ class ReplayTests(unittest.TestCase):
         ]
         result = replay(issue(), comments, self.at("2026-09-19T00:20:00Z"))
         self.assertEqual(result.owner, "b")
+        self.assertEqual(result.owner_actor, "repo-owner")
         self.assertEqual(result.prior_owner, "a")
+        self.assertEqual(result.prior_owner_actor, "repo-owner")
         self.assertEqual(result.reclaim_count, 1)
 
     def test_idempotency_conflict_is_ignored(self):
@@ -174,7 +180,9 @@ class ReplayTests(unittest.TestCase):
         result = replay(issue(), comments, self.at("2026-09-19T00:04:00Z"))
         self.assertEqual(result.state, "claimed")
         self.assertEqual(result.owner, "worker-1")
+        self.assertEqual(result.owner_actor, "owner-a")
         self.assertIsNone(result.latest_result)
+        self.assertEqual(result.latest_owner_event.actor_login, "owner-a")
 
     def test_untrusted_edited_marker_cannot_force_history_unsafe(self):
         comments = [
@@ -269,6 +277,7 @@ class ReplayTests(unittest.TestCase):
         result = replay(issue(), comments, self.at("2026-09-19T00:05:00Z"))
         self.assertEqual(result.state, "claimed")
         self.assertEqual(result.owner, "worker-bot")
+        self.assertEqual(result.owner_actor, "github-actions[bot]")
 
 
 if __name__ == "__main__":
