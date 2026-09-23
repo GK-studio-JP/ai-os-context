@@ -20,6 +20,7 @@ from .protocol import (
 class EventSnapshot:
     type: str
     agent_id: str
+    actor_login: str
     ref: str
     created_at: str
     summary: str
@@ -34,11 +35,13 @@ class ReplayResult:
     history_safe: bool
     history_unsafe_reason: str | None
     owner: str | None
+    owner_actor: str | None
     claim_ref: str | None
     lease_started_at: str | None
     lease_expires_at: str | None
     lease_status: str | None
     prior_owner: str | None
+    prior_owner_actor: str | None
     prior_claim_ref: str | None
     prior_lease_expires_at: str | None
     reclaim_count: int
@@ -68,6 +71,7 @@ def _snapshot(event: CanonicalEvent) -> EventSnapshot:
     return EventSnapshot(
         type=payload["type"],
         agent_id=payload["agent_id"],
+        actor_login=event.actor_login,
         ref=event.ref,
         created_at=_iso(event.created_at) or "",
         summary=payload.get("summary", ""),
@@ -125,11 +129,13 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
             history_safe=False,
             history_unsafe_reason=defect,
             owner=None,
+            owner_actor=None,
             claim_ref=None,
             lease_started_at=None,
             lease_expires_at=None,
             lease_status=None,
             prior_owner=None,
+            prior_owner_actor=None,
             prior_claim_ref=None,
             prior_lease_expires_at=None,
             reclaim_count=0,
@@ -153,6 +159,7 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
     claim_ref: str | None = None
     claim_at: datetime | None = None
     prior_owner: str | None = None
+    prior_owner_actor: str | None = None
     prior_claim_ref: str | None = None
     prior_expiry: datetime | None = None
     awaiting_reclaim = False
@@ -167,9 +174,10 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
 
     def expire_current(at: datetime) -> None:
         nonlocal owner, owner_actor, expiry, claim_ref, claim_at
-        nonlocal prior_owner, prior_claim_ref, prior_expiry, awaiting_reclaim
+        nonlocal prior_owner, prior_owner_actor, prior_claim_ref, prior_expiry, awaiting_reclaim
         if owner is not None:
             prior_owner = owner
+            prior_owner_actor = owner_actor
             prior_claim_ref = claim_ref
             prior_expiry = at
             awaiting_reclaim = True
@@ -270,11 +278,13 @@ def replay(issue: dict[str, Any], comments: list[dict[str, Any]], now: datetime 
         history_safe=True,
         history_unsafe_reason=None,
         owner=owner,
+        owner_actor=owner_actor,
         claim_ref=claim_ref,
         lease_started_at=_iso(claim_at),
         lease_expires_at=_iso(expiry if owner else prior_expiry),
         lease_status=lease_status,
         prior_owner=prior_owner,
+        prior_owner_actor=prior_owner_actor,
         prior_claim_ref=prior_claim_ref,
         prior_lease_expires_at=_iso(prior_expiry),
         reclaim_count=reclaim_count,
