@@ -3,10 +3,6 @@ name: projection snapshot
 on:
   workflow_dispatch:
     inputs:
-      repository:
-        description: Canonical bulletin-board repository (owner/name)
-        required: true
-        default: GK-studio-JP/ai-bulletin-board
       state:
         description: Issue state to project
         required: true
@@ -41,7 +37,7 @@ jobs:
     timeout-minutes: 10
     env:
       GITHUB_TOKEN: ${{ secrets.AIOS_GITHUB_TOKEN || github.token }}
-      SOURCE_REPOSITORY: ${{ inputs.repository || 'GK-studio-JP/ai-bulletin-board' }}
+      SOURCE_REPOSITORY: GK-studio-JP/ai-bulletin-board
       ISSUE_STATE: ${{ inputs.state || 'open' }}
       DEFAULT_PROCESS: ${{ inputs.default_process || 'PROC-BULLETIN' }}
     steps:
@@ -50,6 +46,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -e .
+      - name: Validate canonical source repository
+        shell: bash
+        run: |
+          if [[ "$SOURCE_REPOSITORY" != "GK-studio-JP/ai-bulletin-board" ]]; then
+            echo "::error::SOURCE_REPOSITORY must be GK-studio-JP/ai-bulletin-board"
+            exit 1
+          fi
       - name: Build bounded projection
         shell: bash
         run: |
