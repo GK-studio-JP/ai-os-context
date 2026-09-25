@@ -159,9 +159,9 @@ Boot rule:
 - hourly at minute 17;
 - on pushes that change `src/**`, `tests/**`, or the snapshot workflow itself.
 
-The workflow defaults to `GK-studio-JP/ai-bulletin-board`, open Issues, and `PROC-BULLETIN`. It validates the manifest, scheduler view, and every referenced capsule before uploading `projection/` as the `ai-os-projection` artifact for seven days.
+The workflow fixes `SOURCE_REPOSITORY` to `GK-studio-JP/ai-bulletin-board`; `workflow_dispatch` cannot redirect the production projection to another repository. A fail-closed validation step rejects any run whose source repository differs from that canonical value. Manual runs can still choose Issue state and the legacy default process. The workflow validates the manifest, scheduler view, and every referenced capsule before uploading `projection/` as the `ai-os-projection` artifact for seven days.
 
-If the source repository later requires credentials not available to the run's `github.token`, configure a repository secret named `AIOS_GITHUB_TOKEN` with read-only access to that source.
+If the canonical source repository requires credentials not available to the run's `github.token`, configure a repository secret named `AIOS_GITHUB_TOKEN` with read-only access to `GK-studio-JP/ai-bulletin-board`.
 
 The workflow does not commit projection output back to `main`; the artifact remains a disposable cache.
 
