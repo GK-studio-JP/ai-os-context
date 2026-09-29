@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from ai_os_context.capsule import build_capsule
+from ai_os_context.capsule import build_capsule, source_fingerprint, task_spec_fingerprint
 from ai_os_context.replay import replay
 from ai_os_context.views import scheduler_row
 
@@ -42,10 +42,17 @@ def compile_context(payload: dict[str, Any]) -> dict[str, Any]:
             max_chars=max_chars,
         )
         row = scheduler_row(issue, state, default_process=default_process)
+        replay_payload = state.to_dict()
+        replay_payload["task_spec_fingerprint"] = task_spec_fingerprint(
+            issue, source_repository
+        )
+        replay_payload["source_fingerprint"] = source_fingerprint(
+            issue, state, source_repository
+        )
 
         return {
             "schema": "ai-os-context-http:v1",
-            "replay": state.to_dict(),
+            "replay": replay_payload,
             "capsule": capsule,
             "scheduler_row": row,
         }
