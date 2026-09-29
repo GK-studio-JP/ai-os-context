@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
@@ -18,13 +19,25 @@ from ai_os_context.views import scheduler_row
 app = FastAPI(title="ai-os-context HTTP API", version="1")
 
 
+def _authorize(authorization: str | None) -> None:
+    token = os.getenv("AIOS_SERVICE_TOKEN")
+    if not token:
+        raise HTTPException(status_code=503, detail="AIOS_SERVICE_TOKEN is not configured")
+    if authorization != f"Bearer {token}":
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
     return {"ok": True, "service": "ai-os-context"}
 
 
 @app.post("/api/context/compile")
-def compile_context(payload: dict[str, Any]) -> dict[str, Any]:
+def compile_context(
+    payload: dict[str, Any],
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize(authorization)
     try:
         issue = payload["issue"]
         comments = payload.get("comments", [])
