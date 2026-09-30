@@ -57,7 +57,13 @@ Required environment variables:
 - `AIOS_MEMORY_SUPABASE_URL`
 - `AIOS_MEMORY_SUPABASE_KEY`
 
-Optional vector retrieval:
+OpenAI vector retrieval:
+
+- `OPENAI_API_KEY`
+
+When `OPENAI_API_KEY` is set and no custom embedding endpoint is configured, Global Memory uses OpenAI `text-embedding-3-small` with 1536 dimensions.
+
+Optional overrides:
 
 - `AIOS_MEMORY_EMBEDDING_ENDPOINT`
 - `AIOS_MEMORY_EMBEDDING_TOKEN`
