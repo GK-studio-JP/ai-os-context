@@ -30,13 +30,7 @@ def _authorize(authorization: str | None) -> None:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    memory_ok = False
-    try:
-        probe = search_global_memory("browser-agent timeout recovery", limit=1)
-        memory_ok = bool(probe.get("available")) and int(probe.get("count", 0)) > 0
-    except Exception:
-        memory_ok = False
-    return {"ok": True, "service": "ai-os-context", "memory_ok": memory_ok}
+    return {"ok": True, "service": "ai-os-context"}
 
 
 @app.post("/api/memory/search")
