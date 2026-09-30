@@ -55,6 +55,9 @@ def _embedding_for(query: str, timeout: float = 8.0) -> list[float] | None:
     body: dict[str, Any] = {"input": query}
     if model:
         body["model"] = model
+    if model.startswith("text-embedding-3"):
+        body["dimensions"] = 1536
+        body["encoding_format"] = "float"
 
     token = str(
         os.getenv("AIOS_MEMORY_EMBEDDING_TOKEN")
