@@ -243,3 +243,5 @@ Do not rewrite the bulletin board first.
 6. Add Kernel/Scheduler repositories after the context reduction is proven.
 
 See `docs/MIGRATION.md`.
+
+<!-- redeploy: openai-key-refresh -->
