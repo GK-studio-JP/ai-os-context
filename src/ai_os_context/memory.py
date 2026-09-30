@@ -130,7 +130,7 @@ def search_global_memory(
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
         headers={
             "apikey": key,
-            "Authorization": f"Bearer {key}",
+            **({"Authorization": f"Bearer {key}"} if not key.startswith("sb_secret_") else {}),
             "Content-Type": "application/json",
             "Accept": "application/json",
         },
