@@ -47,6 +47,53 @@ When a capsule exceeds its budget, reduction is limited to non-authoritative con
 
 The `capsule`, `capsule-files`, and `snapshot` commands accept `--max-chars`. The minimum supported limit is 4096 characters; the default is 20000.
 
+
+## Global Memory retrieval
+
+`ai-os-context` can optionally query the AIOS Global Memory projection stored in Supabase.
+
+Required environment variables:
+
+- `AIOS_MEMORY_SUPABASE_URL`
+- `AIOS_MEMORY_SUPABASE_KEY`
+
+Optional vector retrieval:
+
+- `AIOS_MEMORY_EMBEDDING_ENDPOINT`
+- `AIOS_MEMORY_EMBEDDING_TOKEN`
+- `AIOS_MEMORY_EMBEDDING_MODEL`
+
+The search endpoint is:
+
+```text
+POST /api/memory/search
+```
+
+Example payload:
+
+```json
+{
+  "query": "browser-agent timeout recovery",
+  "limit": 8,
+  "tools": ["browser-agent"]
+}
+```
+
+Context compilation can include Global Memory without changing the deterministic capsule itself:
+
+```json
+{
+  "issue": {"number": 1, "title": "Deploy the service", "body": ""},
+  "comments": [],
+  "include_global_memory": true,
+  "memory_query": "Vercel deployment workflow"
+}
+```
+
+The response adds a sibling `global_memory` object next to `capsule` and `scheduler_row`. If Memory search is unavailable, normal context compilation still succeeds and returns `global_memory.available=false`.
+
+The canonical Global Memory content remains in `GK-studio-JP/ai-os-memory`. Supabase FTS/vector data is a rebuildable search projection.
+
 ## Compatibility
 
 v0.1 implements the current `<!-- ai-bb:v1 -->` event envelope:
