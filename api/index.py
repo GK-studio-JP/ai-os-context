@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ai_os_context.capsule import build_capsule, source_fingerprint, task_spec_fingerprint
+from ai_os_context.memory import MemoryUnavailable, search_global_memory
 from ai_os_context.replay import replay
 from ai_os_context.views import scheduler_row
 
@@ -32,6 +33,28 @@ def health() -> dict[str, Any]:
     return {"ok": True, "service": "ai-os-context"}
 
 
+@app.post("/api/memory/search")
+def memory_search(
+    payload: dict[str, Any],
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize(authorization)
+    try:
+        return search_global_memory(
+            payload.get("query", ""),
+            limit=int(payload.get("limit", 8)),
+            types=payload.get("types"),
+            tools=payload.get("tools"),
+            repositories=payload.get("repositories"),
+            environments=payload.get("environments"),
+            query_embedding=payload.get("query_embedding"),
+        )
+    except MemoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/context/compile")
 def compile_context(
     payload: dict[str, Any],
@@ -46,6 +69,13 @@ def compile_context(
             "source_repository", "GK-studio-JP/ai-bulletin-board"
         )
         max_chars = int(payload.get("max_chars", 20000))
+        include_global_memory = bool(payload.get("include_global_memory", False))
+        memory_query = str(
+            payload.get("memory_query")
+            or issue.get("title")
+            or ""
+        ).strip()
+        memory_limit = int(payload.get("memory_limit", 8))
 
         state = replay(issue, comments)
         capsule = build_capsule(
@@ -63,11 +93,34 @@ def compile_context(
             issue, state, source_repository
         )
 
-        return {
+        response = {
             "schema": "ai-os-context-http:v1",
             "replay": replay_payload,
             "capsule": capsule,
             "scheduler_row": row,
         }
+
+        if include_global_memory:
+            try:
+                response["global_memory"] = search_global_memory(
+                    memory_query,
+                    limit=memory_limit,
+                    tools=payload.get("memory_tools"),
+                    repositories=payload.get("memory_repositories"),
+                    environments=payload.get("memory_environments"),
+                    types=payload.get("memory_types"),
+                )
+            except MemoryUnavailable as exc:
+                response["global_memory"] = {
+                    "schema": "ai-os-memory-search:v1",
+                    "scope": "global",
+                    "available": False,
+                    "query": memory_query,
+                    "count": 0,
+                    "results": [],
+                    "error": str(exc),
+                }
+
+        return response
     except (KeyError, TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
