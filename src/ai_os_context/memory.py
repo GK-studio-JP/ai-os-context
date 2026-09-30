@@ -40,16 +40,27 @@ def _clean_list(value: Any) -> list[str] | None:
 
 
 def _embedding_for(query: str, timeout: float = 8.0) -> list[float] | None:
-    endpoint = str(os.getenv("AIOS_MEMORY_EMBEDDING_ENDPOINT") or "").strip()
+    openai_key = str(os.getenv("OPENAI_API_KEY") or "").strip()
+    endpoint = str(
+        os.getenv("AIOS_MEMORY_EMBEDDING_ENDPOINT")
+        or ("https://api.openai.com/v1/embeddings" if openai_key else "")
+    ).strip()
     if not endpoint:
         return None
 
+    model = str(
+        os.getenv("AIOS_MEMORY_EMBEDDING_MODEL")
+        or ("text-embedding-3-small" if openai_key else "")
+    ).strip()
     body: dict[str, Any] = {"input": query}
-    model = str(os.getenv("AIOS_MEMORY_EMBEDDING_MODEL") or "").strip()
     if model:
         body["model"] = model
 
-    token = str(os.getenv("AIOS_MEMORY_EMBEDDING_TOKEN") or "").strip()
+    token = str(
+        os.getenv("AIOS_MEMORY_EMBEDDING_TOKEN")
+        or openai_key
+        or ""
+    ).strip()
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
