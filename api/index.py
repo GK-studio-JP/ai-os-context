@@ -30,7 +30,13 @@ def _authorize(authorization: str | None) -> None:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    return {"ok": True, "service": "ai-os-context"}
+    memory_mode = "unavailable"
+    try:
+        probe = search_global_memory("browser-agent timeout recovery", limit=1)
+        memory_mode = str(probe.get("mode") or "unknown")
+    except Exception:
+        pass
+    return {"ok": True, "service": "ai-os-context", "memory_mode": memory_mode}
 
 
 @app.post("/api/memory/search")
