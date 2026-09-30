@@ -36,7 +36,12 @@ def health() -> dict[str, Any]:
         memory_mode = str(probe.get("mode") or "unknown")
     except Exception:
         pass
-    return {"ok": True, "service": "ai-os-context", "memory_mode": memory_mode}
+    return {
+        "ok": True,
+        "service": "ai-os-context",
+        "memory_mode": memory_mode,
+        "openai_key_configured": bool(os.getenv("OPENAI_API_KEY")),
+    }
 
 
 @app.post("/api/memory/search")
