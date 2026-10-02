@@ -12,6 +12,7 @@ from .capsule import (
     source_fingerprint,
     task_spec_fingerprint,
 )
+from .dream import build_dream_bundle, normalize_dream_report
 from .github import GitHubClient
 from .protocol import extract_task_envelope
 from .replay import replay
@@ -118,6 +119,34 @@ def command_scheduler(args: argparse.Namespace) -> None:
         scheduler_view(args.repo, rows, generated_at=now),
         args.output,
     )
+
+
+
+def command_dream_bundle(args: argparse.Namespace) -> None:
+    client = GitHubClient()
+    generated = _parse_now(args.at)
+    histories = []
+    for issue in client.issues(args.repo, state="all"):
+        number = int(issue["number"])
+        histories.append(
+            (issue, client.issue_comments(args.repo, number))
+        )
+    bundle = build_dream_bundle(
+        args.repo,
+        histories,
+        window_start=_parse_now(args.window_start),
+        window_end=_parse_now(args.window_end),
+        generated_at=generated,
+        settle_delay_seconds=args.settle_delay_seconds,
+        max_timeline_events=args.max_timeline_events,
+    )
+    _emit(bundle, args.output)
+
+
+def command_dream_report_validate(args: argparse.Namespace) -> None:
+    bundle = _json_file(args.bundle_file)
+    report = _json_file(args.report_file)
+    _emit(normalize_dream_report(bundle, report), args.output)
 
 
 def command_snapshot(args: argparse.Namespace) -> None:
@@ -243,6 +272,27 @@ def parser() -> argparse.ArgumentParser:
     )
     output_flags(p)
     p.set_defaults(func=command_scheduler)
+
+    p = sub.add_parser(
+        "dream-bundle",
+        help="build a deterministic Nightly Dream source bundle",
+    )
+    p.add_argument("--repo", required=True)
+    p.add_argument("--window-start", required=True)
+    p.add_argument("--window-end", required=True)
+    p.add_argument("--settle-delay-seconds", type=int, default=0)
+    p.add_argument("--max-timeline-events", type=int, default=48)
+    output_flags(p)
+    p.set_defaults(func=command_dream_bundle)
+
+    p = sub.add_parser(
+        "dream-report-validate",
+        help="validate and normalize one Nightly Dream dry-run report",
+    )
+    p.add_argument("--bundle-file", required=True)
+    p.add_argument("--report-file", required=True)
+    p.add_argument("--output")
+    p.set_defaults(func=command_dream_report_validate)
 
     p = sub.add_parser(
         "snapshot",
