@@ -18,6 +18,7 @@ TRIAGE_CAPSULE_SCHEMA = "aios-dream-triage-capsule:v1"
 DECISIONS = {"promote", "noop", "defer", "reject", "supersede"}
 SCOPES = {"global", "project", "event_only"}
 KINDS = {"fact", "lesson", "pattern"}
+DREAM_INTERNAL_CONTRACTS = {"aios-dream-control:v1", "aios-dream-cycle:v1"}
 CORRECTION_RE = re.compile(
     r"(?i)\b(correct(?:ed|ion)?|supersed(?:ed|es)|replac(?:ed|es)|"
     r"revert(?:ed)?|instead|no longer)\b|修正|訂正|撤回|置き換|ではなく"
@@ -244,6 +245,16 @@ def _bundle_fingerprint(bundle: dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _is_internal_dream_issue(issue: dict[str, Any]) -> bool:
+    envelope = extract_task_envelope(issue.get("body") or "") or {}
+    contracts = envelope.get("contracts") or []
+    return isinstance(contracts, list) and any(
+        contract in DREAM_INTERNAL_CONTRACTS
+        for contract in contracts
+        if isinstance(contract, str)
+    )
+
+
 def build_dream_bundle(
     repository: str,
     histories: list[tuple[dict[str, Any], list[dict[str, Any]]]],
@@ -267,6 +278,8 @@ def build_dream_bundle(
     selected: list[dict[str, Any]] = []
     settling: list[str] = []
     for issue, comments in histories:
+        if _is_internal_dream_issue(issue):
+            continue
         task = f"#{int(issue['number'])}"
         updated_raw = issue.get("updated_at")
         updated = _parse_iso(updated_raw) if isinstance(updated_raw, str) else None
