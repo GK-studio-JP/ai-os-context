@@ -1,8 +1,136 @@
+import json
 import unittest
+from datetime import datetime
 
-from ai_os_context.dream import build_dream_bundle
+from ai_os_context.dream import build_dream_bundle, normalize_dream_report
+
+START = datetime.fromisoformat("2026-10-01T20:00:00+00:00")
+END = datetime.fromisoformat("2026-10-01T22:00:00+00:00")
+NOW = datetime.fromisoformat("2026-10-01T22:10:00+00:00")
+FENCE = chr(96) * 3
+
+
+def issue(number, updated="2026-10-01T21:05:00Z"):
+    return {
+        "number": number,
+        "title": f"Task {number}",
+        "body": "",
+        "html_url": f"https://example.test/{number}",
+        "created_at": "2026-10-01T20:55:00Z",
+        "updated_at": updated,
+    }
+
+
+def event(number, cid, when, typ, summary="event"):
+    payload = {
+        "type": typ,
+        "agent_id": "agent",
+        "task": f"#{number}",
+        "idempotency_key": f"{number}-{cid}",
+        "summary": summary,
+        "next_action": None if typ == "RESULT" else "continue",
+        "artifacts": [f"artifact:{cid}"] if typ == "RESULT" else [],
+    }
+    return {
+        "id": cid,
+        "created_at": when,
+        "updated_at": when,
+        "body": f"<!-- ai-bb:v1 -->\n{FENCE}json\n{json.dumps(payload)}\n{FENCE}",
+        "user": {"login": "owner"},
+        "author_association": "OWNER",
+    }
+
+
+def history(number, base):
+    return [
+        event(number, base, "2026-10-01T21:00:00Z", "CLAIM"),
+        event(
+            number,
+            base + 1,
+            "2026-10-01T21:02:00Z",
+            "PROGRESS",
+            "Earlier restart guidance was superseded.",
+        ),
+        event(number, base + 2, "2026-10-01T21:05:00Z", "RESULT", "verified"),
+    ]
 
 
 class NightlyContextTests(unittest.TestCase):
-    def test_builder_is_available(self):
-        self.assertTrue(callable(build_dream_bundle))
+    def test_bundle_reconstructs_completed_timeline(self):
+        bundle = build_dream_bundle(
+            "repo",
+            [(issue(1), history(1, 100))],
+            window_start=START,
+            window_end=END,
+            generated_at=NOW,
+        )
+        row = bundle["tasks"][0]
+        self.assertEqual(row["final_state"], "completed")
+        self.assertEqual(row["timeline_total"], 3)
+        self.assertIn("superseded", row["triage_capsule"]["corrections"][0])
+        self.assertIn("comment:102", row["triage_capsule"]["verification"])
+
+    def test_settling_task_is_deferred_to_later_cycle(self):
+        bundle = build_dream_bundle(
+            "repo",
+            [(issue(2, "2026-10-01T22:05:00Z"), history(2, 200))],
+            window_start=START,
+            window_end=END,
+            generated_at=NOW,
+        )
+        self.assertEqual(bundle["tasks"], [])
+        self.assertEqual(bundle["settling_tasks"], ["#2"])
+
+    def test_order_and_fingerprint_are_deterministic(self):
+        rows = [
+            (issue(2), history(2, 200)),
+            (issue(1), history(1, 100)),
+        ]
+        a = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        b = build_dream_bundle(
+            "repo", list(reversed(rows)),
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        self.assertEqual([row["task"] for row in a["tasks"]], ["#1", "#2"])
+        self.assertEqual(a["fingerprint"], b["fingerprint"])
+
+    def test_report_validates_cross_task_evidence_and_counts(self):
+        rows = [(issue(n), history(n, n * 100)) for n in (1, 2, 3)]
+        bundle = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        report = {
+            "schema": "aios-dream-report:v1",
+            "authoritative": False,
+            "bundle_fingerprint": bundle["fingerprint"],
+            "proposals": [{
+                "schema": "aios-dream-proposal:v1",
+                "proposal_id": "pattern-1",
+                "kind": "pattern",
+                "decision": "promote",
+                "scope": "global",
+                "source_tasks": ["#3", "#1", "#2"],
+                "summary": "Prefer page recovery.",
+                "evidence": [
+                    {"task": "#1", "ref": "comment:102"},
+                    {"task": "#2", "ref": "comment:202"},
+                    {"task": "#3", "ref": "comment:302"},
+                ],
+            }],
+        }
+        normalized = normalize_dream_report(bundle, report)
+        self.assertFalse(normalized["publish_allowed"])
+        self.assertEqual(normalized["counts"]["decisions"]["promote"], 1)
+
+        bad = json.loads(json.dumps(report))
+        bad["proposals"][0]["evidence"][0]["ref"] = "comment:999"
+        with self.assertRaises(ValueError):
+            normalize_dream_report(bundle, bad)
+
+
+if __name__ == "__main__":
+    unittest.main()
