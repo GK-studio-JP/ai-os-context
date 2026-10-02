@@ -21,6 +21,27 @@ def issue(number, updated="2026-10-01T21:05:00Z"):
     }
 
 
+def issue_with_contract(number, contract):
+    value = issue(number)
+    envelope = {
+        "process": "PROC-AIOS",
+        "repository": "GK-studio-JP/ai-os-projects",
+        "objective": f"Task {number}",
+        "contracts": [contract],
+        "context_refs": [],
+        "acceptance": [],
+        "blocked_by": [],
+        "capabilities": [],
+    }
+    value["body"] = (
+        "<!-- ai-os-task:v1 -->\n"
+        + FENCE + "json\n"
+        + json.dumps(envelope)
+        + "\n" + FENCE
+    )
+    return value
+
+
 def event(number, cid, when, typ, summary="event"):
     payload = {
         "type": typ,
@@ -80,6 +101,19 @@ class NightlyContextTests(unittest.TestCase):
         )
         self.assertEqual(bundle["tasks"], [])
         self.assertEqual(bundle["settling_tasks"], ["#2"])
+
+    def test_dream_control_and_cycle_tasks_are_excluded(self):
+        rows = [
+            (issue_with_contract(7, "aios-dream-control:v1"), history(7, 700)),
+            (issue_with_contract(8, "aios-dream-cycle:v1"), history(8, 800)),
+            (issue_with_contract(9, "ordinary-contract:v1"), history(9, 900)),
+        ]
+        bundle = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        self.assertEqual([row["task"] for row in bundle["tasks"]], ["#9"])
+        self.assertEqual(bundle["settling_tasks"], [])
 
     def test_order_and_fingerprint_are_deterministic(self):
         rows = [
