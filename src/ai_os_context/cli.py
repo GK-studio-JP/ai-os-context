@@ -18,6 +18,8 @@ from .protocol import extract_task_envelope
 from .replay import replay
 from .views import scheduler_row, scheduler_view
 
+DREAM_HISTORIES_SCHEMA = "aios-dream-histories:v1"
+
 
 def _json_file(path: str) -> Any:
     return json.loads(Path(path).read_text(encoding="utf-8"))
@@ -133,6 +135,49 @@ def command_dream_bundle(args: argparse.Namespace) -> None:
         )
     bundle = build_dream_bundle(
         args.repo,
+        histories,
+        window_start=_parse_now(args.window_start),
+        window_end=_parse_now(args.window_end),
+        generated_at=generated,
+        settle_delay_seconds=args.settle_delay_seconds,
+        max_timeline_events=args.max_timeline_events,
+    )
+    _emit(bundle, args.output)
+
+
+def command_dream_bundle_files(args: argparse.Namespace) -> None:
+    source = _json_file(args.histories_file)
+    if not isinstance(source, dict) or source.get("schema") != DREAM_HISTORIES_SCHEMA:
+        raise ValueError("unsupported Dream histories schema")
+    repository = source.get("repository")
+    rows = source.get("histories")
+    if not isinstance(repository, str) or not repository:
+        raise ValueError("Dream histories repository is required")
+    if not isinstance(rows, list):
+        raise ValueError("Dream histories must be a list")
+
+    histories = []
+    seen_numbers: set[int] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("Dream history row must be an object")
+        issue = row.get("issue")
+        comments = row.get("comments")
+        if not isinstance(issue, dict) or not isinstance(comments, list):
+            raise ValueError("Dream history row requires issue object and comments list")
+        number = issue.get("number")
+        if not isinstance(number, int):
+            raise ValueError("Dream history issue number must be an integer")
+        if number in seen_numbers:
+            raise ValueError(f"duplicate Dream history issue: #{number}")
+        seen_numbers.add(number)
+        if any(not isinstance(comment, dict) for comment in comments):
+            raise ValueError(f"Dream history comments for #{number} must be objects")
+        histories.append((issue, comments))
+
+    generated = _parse_now(args.at)
+    bundle = build_dream_bundle(
+        repository,
         histories,
         window_start=_parse_now(args.window_start),
         window_end=_parse_now(args.window_end),
@@ -284,6 +329,18 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--max-timeline-events", type=int, default=48)
     output_flags(p)
     p.set_defaults(func=command_dream_bundle)
+
+    p = sub.add_parser(
+        "dream-bundle-files",
+        help="build a deterministic Nightly Dream bundle from connector-fetched histories",
+    )
+    p.add_argument("--histories-file", required=True)
+    p.add_argument("--window-start", required=True)
+    p.add_argument("--window-end", required=True)
+    p.add_argument("--settle-delay-seconds", type=int, default=0)
+    p.add_argument("--max-timeline-events", type=int, default=48)
+    output_flags(p)
+    p.set_defaults(func=command_dream_bundle_files)
 
     p = sub.add_parser(
         "dream-report-validate",

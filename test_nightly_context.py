@@ -1,7 +1,10 @@
 import json
+import tempfile
 import unittest
 from datetime import datetime
+from pathlib import Path
 
+from ai_os_context.cli import parser
 from ai_os_context.dream import build_dream_bundle, normalize_dream_report
 
 START = datetime.fromisoformat("2026-10-01T20:00:00+00:00")
@@ -130,6 +133,66 @@ class NightlyContextTests(unittest.TestCase):
         )
         self.assertEqual([row["task"] for row in a["tasks"]], ["#1", "#2"])
         self.assertEqual(a["fingerprint"], b["fingerprint"])
+
+    def test_offline_bundle_command_preserves_connector_timestamps(self):
+        rows = [(issue(1), history(1, 100))]
+        direct = build_dream_bundle(
+            "GK-studio-JP/ai-bulletin-board",
+            rows,
+            window_start=START,
+            window_end=END,
+            generated_at=NOW,
+        )
+        source = {
+            "schema": "aios-dream-histories:v1",
+            "repository": "GK-studio-JP/ai-bulletin-board",
+            "histories": [
+                {"issue": rows[0][0], "comments": rows[0][1]},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            histories_path = Path(tmp) / "histories.json"
+            output_path = Path(tmp) / "bundle.json"
+            histories_path.write_text(json.dumps(source), encoding="utf-8")
+            args = parser().parse_args([
+                "dream-bundle-files",
+                "--histories-file", str(histories_path),
+                "--window-start", START.isoformat(),
+                "--window-end", END.isoformat(),
+                "--at", NOW.isoformat(),
+                "--output", str(output_path),
+            ])
+            args.func(args)
+            offline = json.loads(output_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(offline["fingerprint"], direct["fingerprint"])
+        self.assertEqual(offline["tasks"][0]["final_state"], "completed")
+        self.assertEqual(
+            offline["tasks"][0]["timeline"][0]["created_at"],
+            "2026-10-01T21:00:00Z",
+        )
+
+    def test_offline_bundle_command_rejects_duplicate_issue_rows(self):
+        source = {
+            "schema": "aios-dream-histories:v1",
+            "repository": "repo",
+            "histories": [
+                {"issue": issue(1), "comments": history(1, 100)},
+                {"issue": issue(1), "comments": history(1, 100)},
+            ],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            histories_path = Path(tmp) / "histories.json"
+            histories_path.write_text(json.dumps(source), encoding="utf-8")
+            args = parser().parse_args([
+                "dream-bundle-files",
+                "--histories-file", str(histories_path),
+                "--window-start", START.isoformat(),
+                "--window-end", END.isoformat(),
+                "--at", NOW.isoformat(),
+            ])
+            with self.assertRaisesRegex(ValueError, "duplicate Dream history issue"):
+                args.func(args)
 
     def test_report_validates_cross_task_evidence_and_counts(self):
         rows = [(issue(n), history(n, n * 100)) for n in (1, 2, 3)]
