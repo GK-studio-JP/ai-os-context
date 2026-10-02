@@ -5,7 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 from ai_os_context.cli import parser
-from ai_os_context.dream import build_dream_bundle, normalize_dream_report
+from ai_os_context.dream import (
+    build_dream_bundle,
+    build_dream_quality_metrics,
+    normalize_dream_report,
+    proposal_evidence_fingerprint,
+)
 
 START = datetime.fromisoformat("2026-10-01T20:00:00+00:00")
 END = datetime.fromisoformat("2026-10-01T22:00:00+00:00")
@@ -227,6 +232,142 @@ class NightlyContextTests(unittest.TestCase):
         bad["proposals"][0]["evidence"][0]["ref"] = "comment:999"
         with self.assertRaises(ValueError):
             normalize_dream_report(bundle, bad)
+
+
+
+    def test_pattern_threshold_is_configurable_and_defaults_to_three(self):
+        rows = [(issue(n), history(n, n * 100)) for n in (1, 2, 3)]
+        bundle = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        report = {
+            "schema": "aios-dream-report:v1",
+            "authoritative": False,
+            "bundle_fingerprint": bundle["fingerprint"],
+            "proposals": [{
+                "schema": "aios-dream-proposal:v1",
+                "proposal_id": "pattern-threshold",
+                "kind": "pattern",
+                "decision": "promote",
+                "scope": "global",
+                "source_tasks": ["#1", "#2"],
+                "summary": "Repeated operational pattern.",
+                "evidence": [
+                    {"task": "#1", "ref": "comment:102"},
+                    {"task": "#2", "ref": "comment:202"},
+                ],
+            }],
+        }
+        with self.assertRaisesRegex(ValueError, "at least 3"):
+            normalize_dream_report(bundle, report)
+        normalized = normalize_dream_report(
+            bundle, report, min_pattern_evidence=2, mode="publish"
+        )
+        self.assertEqual(normalized["mode"], "publish")
+        self.assertEqual(normalized["policy"]["min_pattern_evidence"], 2)
+
+    def test_repeated_pattern_evidence_becomes_noop(self):
+        rows = [(issue(n), history(n, n * 100)) for n in (1, 2, 3)]
+        bundle = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        raw = {
+            "schema": "aios-dream-report:v1",
+            "authoritative": False,
+            "bundle_fingerprint": bundle["fingerprint"],
+            "proposals": [{
+                "schema": "aios-dream-proposal:v1",
+                "proposal_id": "pattern-repeat",
+                "kind": "pattern",
+                "decision": "promote",
+                "scope": "global",
+                "source_tasks": ["#3", "#1", "#2"],
+                "summary": "Prefer page-level recovery.",
+                "evidence": [
+                    {"task": "#1", "ref": "comment:102"},
+                    {"task": "#2", "ref": "comment:202"},
+                    {"task": "#3", "ref": "comment:302"},
+                ],
+            }],
+        }
+        first = normalize_dream_report(bundle, raw)
+        fingerprint = proposal_evidence_fingerprint(first["proposals"][0])
+        second = normalize_dream_report(
+            bundle, raw, prior_evidence_fingerprints=[fingerprint]
+        )
+        proposal = second["proposals"][0]
+        self.assertEqual(proposal["requested_decision"], "promote")
+        self.assertEqual(proposal["decision"], "noop")
+        self.assertEqual(proposal["reason_code"], "no_new_evidence")
+
+    def test_quality_metrics_are_deterministic(self):
+        rows = [(issue(n), history(n, n * 100)) for n in (1, 2, 3)]
+        bundle = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        raw = {
+            "schema": "aios-dream-report:v1",
+            "authoritative": False,
+            "bundle_fingerprint": bundle["fingerprint"],
+            "proposals": [{
+                "schema": "aios-dream-proposal:v1",
+                "proposal_id": "lesson-1",
+                "kind": "lesson",
+                "decision": "promote",
+                "scope": "global",
+                "source_tasks": ["#1"],
+                "summary": "Verified lesson.",
+                "evidence": [{"task": "#1", "ref": "comment:102"}],
+            }],
+        }
+        normalized = normalize_dream_report(bundle, raw, mode="publish")
+        metrics = build_dream_quality_metrics(bundle, normalized)
+        self.assertEqual(metrics["mode"], "publish")
+        self.assertEqual(metrics["counts"]["selected_tasks"], 3)
+        self.assertEqual(metrics["counts"]["safe_completed_tasks"], 3)
+        self.assertEqual(metrics["counts"]["publish_candidates"], 1)
+        self.assertEqual(metrics["ratios"]["evidence_coverage"], 1.0)
+
+    def test_history_unsafe_and_idempotency_conflict_are_visible_to_metrics(self):
+        rows = [(issue(1), history(1, 100)), (issue(2), history(2, 200))]
+        rows[0][1][0]["updated_at"] = "2026-10-01T21:00:01Z"
+        rows[1][1][1]["body"] = rows[1][1][1]["body"].replace(
+            '"idempotency_key": "2-201"',
+            '"idempotency_key": "2-200"',
+        )
+        bundle = build_dream_bundle(
+            "repo", rows,
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        raw = {
+            "schema": "aios-dream-report:v1",
+            "authoritative": False,
+            "bundle_fingerprint": bundle["fingerprint"],
+            "proposals": [],
+        }
+        normalized = normalize_dream_report(bundle, raw)
+        metrics = build_dream_quality_metrics(bundle, normalized)
+        self.assertEqual(metrics["counts"]["history_unsafe_tasks"], 1)
+        self.assertEqual(metrics["counts"]["idempotency_conflict_tasks"], 1)
+
+    def test_invalid_mode_and_threshold_fail_closed(self):
+        bundle = build_dream_bundle(
+            "repo", [(issue(1), history(1, 100))],
+            window_start=START, window_end=END, generated_at=NOW,
+        )
+        raw = {
+            "schema": "aios-dream-report:v1",
+            "authoritative": False,
+            "bundle_fingerprint": bundle["fingerprint"],
+            "proposals": [],
+        }
+        with self.assertRaisesRegex(ValueError, "mode"):
+            normalize_dream_report(bundle, raw, mode="execute")
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            normalize_dream_report(bundle, raw, min_pattern_evidence=0)
 
 
 if __name__ == "__main__":
