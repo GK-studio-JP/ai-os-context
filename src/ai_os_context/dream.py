@@ -18,6 +18,9 @@ TRIAGE_CAPSULE_SCHEMA = "aios-dream-triage-capsule:v1"
 DECISIONS = {"promote", "noop", "defer", "reject", "supersede"}
 SCOPES = {"global", "project", "event_only"}
 KINDS = {"fact", "lesson", "pattern"}
+REPORT_MODES = {"dry_run", "publish"}
+DEFAULT_MIN_PATTERN_EVIDENCE = 3
+QUALITY_METRICS_SCHEMA = "aios-dream-quality-metrics:v1"
 DREAM_INTERNAL_CONTRACTS = {"aios-dream-control:v1", "aios-dream-cycle:v1"}
 CORRECTION_RE = re.compile(
     r"(?i)\b(correct(?:ed|ion)?|supersed(?:ed|es)|replac(?:ed|es)|"
@@ -187,6 +190,7 @@ def build_dream_task(
         "history_safe": state.history_safe,
         "history_unsafe_reason": state.history_unsafe_reason,
         "canonical_event_count": state.canonical_event_count,
+        "idempotency_conflicts": state.idempotency_conflicts,
         "canonical_through_comment_id": state.canonical_through_comment_id,
         "timeline_total": timeline_total,
         "timeline_truncated": timeline_total > len(timeline_rows),
@@ -342,9 +346,39 @@ def build_dream_bundle(
     return bundle
 
 
+def proposal_evidence_fingerprint(proposal: dict[str, Any]) -> str:
+    """Fingerprint only the evidence identity used for repeat-pattern suppression."""
+    source_tasks = proposal.get("source_tasks") or []
+    evidence = proposal.get("evidence") or []
+    material = {
+        "kind": proposal.get("kind"),
+        "scope": proposal.get("scope"),
+        "source_tasks": sorted(
+            {task for task in source_tasks if isinstance(task, str)},
+            key=_task_number,
+        ),
+        "evidence": sorted(
+            [
+                {"task": item.get("task"), "ref": item.get("ref")}
+                for item in evidence
+                if isinstance(item, dict)
+                and isinstance(item.get("task"), str)
+                and isinstance(item.get("ref"), str)
+            ],
+            key=lambda item: (_task_number(item["task"]), item["ref"]),
+        ),
+    }
+    raw = json.dumps(material, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def normalize_dream_report(
     bundle: dict[str, Any],
     report: dict[str, Any],
+    *,
+    mode: str | None = None,
+    min_pattern_evidence: int = DEFAULT_MIN_PATTERN_EVIDENCE,
+    prior_evidence_fingerprints: Iterable[str] = (),
 ) -> dict[str, Any]:
     if bundle.get("schema") != DREAM_BUNDLE_SCHEMA:
         raise ValueError("unsupported Dream bundle schema")
@@ -354,6 +388,18 @@ def normalize_dream_report(
         raise ValueError("Dream report must be explicitly non-authoritative")
     if report.get("bundle_fingerprint") != bundle.get("fingerprint"):
         raise ValueError("Dream report bundle_fingerprint mismatch")
+    selected_mode = mode or report.get("mode") or "dry_run"
+    if selected_mode not in REPORT_MODES:
+        raise ValueError("Dream report mode must be dry_run or publish")
+    if (
+        not isinstance(min_pattern_evidence, int)
+        or isinstance(min_pattern_evidence, bool)
+        or min_pattern_evidence < 1
+    ):
+        raise ValueError("min_pattern_evidence must be a positive integer")
+    prior_fingerprints = {
+        item for item in prior_evidence_fingerprints if isinstance(item, str)
+    }
 
     tasks = {row["task"]: row for row in bundle.get("tasks", [])}
     proposals = report.get("proposals")
@@ -375,11 +421,11 @@ def normalize_dream_report(
         seen_ids.add(proposal_id)
 
         kind = raw.get("kind")
-        decision = raw.get("decision")
+        requested_decision = raw.get("decision")
         scope = raw.get("scope")
         if kind not in KINDS:
             raise ValueError("unsupported Dream proposal kind")
-        if decision not in DECISIONS:
+        if requested_decision not in DECISIONS:
             raise ValueError("unsupported Dream proposal decision")
         if scope not in SCOPES:
             raise ValueError("unsupported Dream proposal scope")
@@ -404,6 +450,7 @@ def normalize_dream_report(
         if not isinstance(evidence, list):
             raise ValueError("Dream proposal evidence must be a list")
         normalized_evidence: list[dict[str, str]] = []
+        seen_evidence: set[tuple[str, str]] = set()
         for item in evidence:
             if not isinstance(item, dict):
                 raise ValueError("Dream evidence must be an object")
@@ -413,28 +460,44 @@ def normalize_dream_report(
                 raise ValueError("Dream evidence must reference a source task")
             if ref not in tasks[task].get("source_refs", []):
                 raise ValueError(f"unknown Dream evidence ref for {task}: {ref}")
-            normalized_evidence.append({"task": task, "ref": ref})
+            key = (task, ref)
+            if key not in seen_evidence:
+                normalized_evidence.append({"task": task, "ref": ref})
+                seen_evidence.add(key)
 
-        if decision in {"promote", "supersede"}:
+        if requested_decision in {"promote", "supersede"}:
             if scope == "event_only":
                 raise ValueError("promote/supersede cannot use event_only scope")
             if not normalized_evidence:
                 raise ValueError("promote/supersede requires evidence")
-            if kind == "pattern" and len(source_tasks) < 3:
-                raise ValueError("promoted pattern requires at least 3 source tasks")
+            if kind == "pattern" and len(source_tasks) < min_pattern_evidence:
+                raise ValueError(
+                    "promoted pattern requires at least "
+                    f"{min_pattern_evidence} source tasks"
+                )
 
-        normalized.append(
-            {
-                "schema": DREAM_PROPOSAL_SCHEMA,
-                "proposal_id": proposal_id.strip(),
-                "kind": kind,
-                "decision": decision,
-                "scope": scope,
-                "source_tasks": source_tasks,
-                "summary": summary.strip(),
-                "evidence": normalized_evidence,
-            }
-        )
+        normalized_proposal = {
+            "schema": DREAM_PROPOSAL_SCHEMA,
+            "proposal_id": proposal_id.strip(),
+            "kind": kind,
+            "decision": requested_decision,
+            "requested_decision": requested_decision,
+            "scope": scope,
+            "source_tasks": source_tasks,
+            "summary": summary.strip(),
+            "evidence": normalized_evidence,
+            "reason_code": None,
+        }
+        evidence_fingerprint = proposal_evidence_fingerprint(normalized_proposal)
+        normalized_proposal["evidence_fingerprint"] = evidence_fingerprint
+        if (
+            kind == "pattern"
+            and requested_decision in {"promote", "supersede"}
+            and evidence_fingerprint in prior_fingerprints
+        ):
+            normalized_proposal["decision"] = "noop"
+            normalized_proposal["reason_code"] = "no_new_evidence"
+        normalized.append(normalized_proposal)
 
     normalized.sort(key=lambda item: item["proposal_id"])
     decision_counts = {key: 0 for key in sorted(DECISIONS)}
@@ -448,9 +511,14 @@ def normalize_dream_report(
     return {
         "schema": DREAM_REPORT_SCHEMA,
         "authoritative": False,
+        "mode": selected_mode,
         "bundle_fingerprint": bundle["fingerprint"],
         "publish_allowed": False,
         "canonical_writes": [],
+        "policy": {
+            "min_pattern_evidence": min_pattern_evidence,
+            "no_new_evidence_enabled": True,
+        },
         "counts": {
             "proposals": len(normalized),
             "decisions": decision_counts,
@@ -458,4 +526,64 @@ def normalize_dream_report(
             "kinds": kind_counts,
         },
         "proposals": normalized,
+    }
+
+
+def build_dream_quality_metrics(
+    bundle: dict[str, Any],
+    report: dict[str, Any],
+) -> dict[str, Any]:
+    """Build deterministic, non-authoritative quality metrics for a Dream cycle."""
+    if bundle.get("schema") != DREAM_BUNDLE_SCHEMA:
+        raise ValueError("unsupported Dream bundle schema")
+    if report.get("schema") != DREAM_REPORT_SCHEMA:
+        raise ValueError("unsupported Dream report schema")
+    if report.get("bundle_fingerprint") != bundle.get("fingerprint"):
+        raise ValueError("Dream metrics report does not match bundle")
+
+    tasks = [row for row in bundle.get("tasks", []) if isinstance(row, dict)]
+    proposals = [
+        row for row in report.get("proposals", []) if isinstance(row, dict)
+    ]
+    selected = len(tasks)
+    safe_completed = sum(
+        row.get("history_safe") is True and row.get("final_state") == "completed"
+        for row in tasks
+    )
+    history_unsafe = sum(
+        row.get("history_safe") is False or row.get("final_state") == "history_unsafe"
+        for row in tasks
+    )
+    conflict_tasks = sum(int(row.get("idempotency_conflicts") or 0) > 0 for row in tasks)
+    evidence_backed = sum(bool(row.get("evidence")) for row in proposals)
+    publish_candidates = sum(
+        row.get("decision") in {"promote", "supersede"} for row in proposals
+    )
+    pattern_proposals = sum(row.get("kind") == "pattern" for row in proposals)
+    no_new_evidence = sum(
+        row.get("reason_code") == "no_new_evidence" for row in proposals
+    )
+
+    return {
+        "schema": QUALITY_METRICS_SCHEMA,
+        "authoritative": False,
+        "bundle_fingerprint": bundle["fingerprint"],
+        "mode": report.get("mode", "dry_run"),
+        "counts": {
+            "selected_tasks": selected,
+            "safe_completed_tasks": safe_completed,
+            "history_unsafe_tasks": history_unsafe,
+            "idempotency_conflict_tasks": conflict_tasks,
+            "proposals": len(proposals),
+            "evidence_backed_proposals": evidence_backed,
+            "publish_candidates": publish_candidates,
+            "pattern_proposals": pattern_proposals,
+            "no_new_evidence_skips": no_new_evidence,
+        },
+        "ratios": {
+            "safe_completed": round(safe_completed / selected, 4) if selected else 1.0,
+            "evidence_coverage": (
+                round(evidence_backed / len(proposals), 4) if proposals else 1.0
+            ),
+        },
     }
