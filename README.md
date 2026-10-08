@@ -100,6 +100,17 @@ The response adds a sibling `global_memory` object next to `capsule` and `schedu
 
 The canonical Global Memory content remains in `GK-studio-JP/ai-os-memory`. Supabase FTS/vector data is a rebuildable search projection.
 
+### Selection feedback and daily decay
+
+Global Memory `score` includes the database's daily freshness factor; searching
+or including candidates in a context response does not refresh them. After a
+consumer adopts useful/current results, call the service-authenticated
+`POST /api/memory/select` with `{"selections":[{"chunk_id":"...","source_commit":"..."}]}`.
+Only explicit selections refresh; pass the returned current source commit.
+Stale/inactive selections return 409 without partially refreshing the batch.
+The matching Python client is `record_memory_selection`. Database configuration
+and lifecycle semantics belong to `ai-os-memory/knowledge/conventions/memory-policy.md`.
+
 ## Compatibility
 
 v0.1 implements the current `<!-- ai-bb:v1 -->` event envelope:

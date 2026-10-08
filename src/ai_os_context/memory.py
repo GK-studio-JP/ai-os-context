@@ -11,6 +11,10 @@ class MemoryUnavailable(RuntimeError):
     """Raised when the Global Memory projection cannot be queried."""
 
 
+class MemorySelectionStale(ValueError):
+    """The selected search result changed before it could be adopted."""
+
+
 def _config() -> tuple[str, str]:
     url = (
         os.getenv("AIOS_MEMORY_SUPABASE_URL")
@@ -175,3 +179,48 @@ def search_global_memory(
         "count": len(results),
         "results": results,
     }
+
+
+def record_memory_selection(
+    selections: list[dict[str, str]], *, timeout: float = 8.0,
+) -> dict[str, Any]:
+    """Refresh only explicitly adopted results. Search never calls this writer."""
+    if not isinstance(selections, list) or not 1 <= len(selections) <= 50:
+        raise ValueError("selections must contain between 1 and 50 results")
+    chosen = []
+    seen = set()
+    for item in selections:
+        if not isinstance(item, dict) or any(
+            not isinstance(item.get(key), str) or not item[key].strip()
+            for key in ("chunk_id", "source_commit")
+        ):
+            raise ValueError("each selection requires chunk_id and source_commit strings")
+        identity = (item["chunk_id"], item["source_commit"])
+        if identity not in seen:
+            seen.add(identity)
+            chosen.append(dict(zip(("chunk_id", "source_commit"), identity)))
+    url, key = _config()
+    req = urllib.request.Request(
+        url + "/rest/v1/rpc/aios_memory_mark_selected",
+        data=json.dumps({"p_selections": chosen, "p_scope": "global"}).encode("utf-8"),
+        headers={
+            "apikey": key,
+            **({"Authorization": f"Bearer {key}"} if not key.startswith("sb_secret_") else {}),
+            "Content-Type": "application/json", "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            results = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if exc.code in (400, 409):
+            raise MemorySelectionStale("selection rejected; search again before adopting") from exc
+        raise MemoryUnavailable(f"Memory selection returned HTTP {exc.code}") from exc
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise MemoryUnavailable("Memory selection could not be confirmed") from exc
+    if (not isinstance(results, list) or len(results) != len(chosen)
+            or any(not isinstance(row, dict) or not row.get("last_selected_at") for row in results)
+            or {row.get("chunk_id") for row in results} != {row["chunk_id"] for row in chosen}):
+        raise MemoryUnavailable("Memory selection returned an invalid acknowledgement")
+    return {"schema": "ai-os-memory-selection:v1", "count": len(results), "results": results}

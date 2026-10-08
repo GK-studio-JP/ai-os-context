@@ -13,7 +13,9 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from ai_os_context.capsule import build_capsule, source_fingerprint, task_spec_fingerprint
-from ai_os_context.memory import MemoryUnavailable, search_global_memory
+from ai_os_context.memory import (
+    MemorySelectionStale, MemoryUnavailable, record_memory_selection, search_global_memory,
+)
 from ai_os_context.replay import replay
 from ai_os_context.views import scheduler_row
 
@@ -53,6 +55,22 @@ def memory_search(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/memory/select")
+def memory_select(
+    payload: dict[str, Any],
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    _authorize(authorization)
+    try:
+        return record_memory_selection(payload.get("selections"))
+    except MemorySelectionStale as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except MemoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/context/compile")
